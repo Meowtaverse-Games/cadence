@@ -1,0 +1,52 @@
+{
+  "name": "overlapping-free-part",
+  "description": "月曜19:00〜20:00の自由部分に別窓19:00〜19:15が重なる。block同士が重ならなくても無効（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 45
+          },
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      },
+      {
+        "id": "p2",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "19:15",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "window_overlap"
+  }
+}

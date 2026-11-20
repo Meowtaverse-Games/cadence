@@ -1,0 +1,32 @@
+{
+  "name": "disabled-free-only",
+  "description": "無効化したfreeのみのパターンは有効で区間なし。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": false,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 1
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": []
+  }
+}

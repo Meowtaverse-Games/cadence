@@ -1,0 +1,37 @@
+{
+  "name": "sunday-to-monday",
+  "description": "日曜23:00〜月曜01:00。月曜00:15の検索でも日曜の窓を拾う（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          7
+        ],
+        "start": "23:00",
+        "end": "01:00",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 60
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-04T15:15:00Z",
+  "to": "2026-01-04T16:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {
+        "start": "2026-01-04T14:00:00Z",
+        "end": "2026-01-04T16:00:00Z"
+      }
+    ]
+  }
+}

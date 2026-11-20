@@ -1,0 +1,69 @@
+{
+  "name": "touching-patterns",
+  "description": "月曜19:00〜20:00と20:00〜20:30の窓は接するだけ。結果は19:10〜19:30、19:40〜20:00、20:10〜20:30の昇順（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p2",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "20:00",
+        "end": "20:30",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 10
+          },
+          {
+            "kind": "block",
+            "minutes": 20
+          }
+        ]
+      },
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 10
+          },
+          {
+            "kind": "block",
+            "minutes": 20
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {
+        "start": "2026-01-05T10:10:00Z",
+        "end": "2026-01-05T10:30:00Z"
+      },
+      {
+        "start": "2026-01-05T10:40:00Z",
+        "end": "2026-01-05T11:00:00Z"
+      },
+      {
+        "start": "2026-01-05T11:10:00Z",
+        "end": "2026-01-05T11:30:00Z"
+      }
+    ]
+  }
+}

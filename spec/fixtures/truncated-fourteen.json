@@ -1,0 +1,36 @@
+{
+  "name": "truncated-fourteen",
+  "description": "月曜19:10〜19:24の14分は捨てる（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "19:24",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 10
+          },
+          {
+            "kind": "block",
+            "minutes": 20
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": []
+  }
+}

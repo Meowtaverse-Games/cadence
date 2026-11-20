@@ -1,0 +1,36 @@
+{
+  "name": "half-open-query",
+  "description": "月曜19:30〜19:40は前後のblockに接するだけで重ならない（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 10
+          },
+          {
+            "kind": "block",
+            "minutes": 20
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T10:30:00Z",
+  "to": "2026-01-05T10:40:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": []
+  }
+}

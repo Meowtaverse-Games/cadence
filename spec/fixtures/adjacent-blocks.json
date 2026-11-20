@@ -1,0 +1,49 @@
+{
+  "name": "adjacent-blocks",
+  "description": "月曜19:00〜19:30、19:40〜20:00。隣接blockを結合し、最後の5分も保持（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          },
+          {
+            "kind": "block",
+            "minutes": 15
+          },
+          {
+            "kind": "free",
+            "minutes": 10
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {
+        "start": "2026-01-05T10:00:00Z",
+        "end": "2026-01-05T10:30:00Z"
+      },
+      {
+        "start": "2026-01-05T10:40:00Z",
+        "end": "2026-01-05T11:00:00Z"
+      }
+    ]
+  }
+}

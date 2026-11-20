@@ -1,0 +1,14 @@
+{
+  "name": "missing-document-patterns",
+  "description": "必須フィールド patterns が欠けている。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo"
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "patterns"
+  }
+}

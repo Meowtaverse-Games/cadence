@@ -1,0 +1,15 @@
+{
+  "name": "patterns-not-array",
+  "description": "patterns の型または値が検証規則を満たさない。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": {}
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "patterns"
+  }
+}

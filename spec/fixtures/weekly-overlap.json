@@ -1,0 +1,48 @@
+{
+  "name": "weekly-overlap",
+  "description": "日曜23:45〜月曜00:15と月曜00:14〜00:29が週境界で1分重なる（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          7
+        ],
+        "start": "23:45",
+        "end": "00:15",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      },
+      {
+        "id": "p2",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "00:14",
+        "end": "00:29",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "window_overlap"
+  }
+}

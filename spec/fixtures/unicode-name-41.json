@@ -1,0 +1,36 @@
+{
+  "name": "unicode-name-41",
+  "description": "絵文字1個と結合文字列を含む41コードポイント。上限40を超える。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "😀éaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 10
+          },
+          {
+            "kind": "block",
+            "minutes": 20
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "pattern_name"
+  }
+}

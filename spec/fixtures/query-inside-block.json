@@ -1,0 +1,41 @@
+{
+  "name": "query-inside-block",
+  "description": "月曜19:15〜19:20の検索に対し19:10〜19:30を切り詰めず返す（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "20:00",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 10
+          },
+          {
+            "kind": "block",
+            "minutes": 20
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T10:15:00Z",
+  "to": "2026-01-05T10:20:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {
+        "start": "2026-01-05T10:10:00Z",
+        "end": "2026-01-05T10:30:00Z"
+      }
+    ]
+  }
+}

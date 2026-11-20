@@ -1,0 +1,57 @@
+{
+  "name": "weekly-touch",
+  "description": "日曜23:00〜月曜01:00と月曜01:00〜02:00。週境界で接するだけ（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          7
+        ],
+        "start": "23:00",
+        "end": "01:00",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 60
+          }
+        ]
+      },
+      {
+        "id": "p2",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "01:00",
+        "end": "02:00",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 60
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-04T14:00:00Z",
+  "to": "2026-01-04T17:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {
+        "start": "2026-01-04T14:00:00Z",
+        "end": "2026-01-04T16:00:00Z"
+      },
+      {
+        "start": "2026-01-04T16:00:00Z",
+        "end": "2026-01-04T17:00:00Z"
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "missing-pattern-end",
+  "description": "必須フィールド end が欠けている。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "window_time"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "minutes-huge",
+  "description": "minutes の型または値が検証規則を満たさない。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "19:15",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 1e+300
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "segment_minutes"
+  }
+}

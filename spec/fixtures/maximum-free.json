@@ -1,0 +1,41 @@
+{
+  "name": "maximum-free",
+  "description": "freeの上限720分。月曜12:00〜12:15（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "00:00",
+        "end": "12:15",
+        "segments": [
+          {
+            "kind": "free",
+            "minutes": 720
+          },
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-04T15:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {
+        "start": "2026-01-05T03:00:00Z",
+        "end": "2026-01-05T03:15:00Z"
+      }
+    ]
+  }
+}

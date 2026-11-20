@@ -1,0 +1,15 @@
+{
+  "name": "empty-patterns",
+  "description": "空の時間割は有効で区間なし。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": []
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": []
+  }
+}

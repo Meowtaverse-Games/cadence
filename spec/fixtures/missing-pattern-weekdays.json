@@ -1,0 +1,29 @@
+{
+  "name": "missing-pattern-weekdays",
+  "description": "必須フィールド weekdays が欠けている。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "start": "19:00",
+        "end": "19:15",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "weekdays"
+  }
+}

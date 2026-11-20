@@ -1,0 +1,48 @@
+{
+  "name": "overlapping-windows",
+  "description": "月曜19:00〜19:15と19:14〜19:29が1分重なる（日本時間）。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "p1",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:00",
+        "end": "19:15",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      },
+      {
+        "id": "p2",
+        "name": "合成パターン",
+        "enabled": true,
+        "weekdays": [
+          1
+        ],
+        "start": "19:14",
+        "end": "19:29",
+        "segments": [
+          {
+            "kind": "block",
+            "minutes": 15
+          }
+        ]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "window_overlap"
+  }
+}
