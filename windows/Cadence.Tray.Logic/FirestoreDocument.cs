@@ -58,7 +58,10 @@ public static class FirestoreDocument
                 data.WriteTo(writer);
                 break;
             case "booleanValue": writer.WriteBooleanValue(data.GetBoolean()); break;
-            case "stringValue": writer.WriteStringValue(data.GetString()); break;
+            case "stringValue":
+                if (data.ValueKind != JsonValueKind.String) throw new FormatException();
+                writer.WriteStringValue(data.GetString());
+                break;
             case "nullValue":
                 if (data.ValueKind != JsonValueKind.Null) throw new FormatException();
                 writer.WriteNullValue();

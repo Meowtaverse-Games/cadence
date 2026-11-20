@@ -116,14 +116,16 @@ public sealed class SyncTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task NetworkFailureOrTimeoutKeepsCacheAndRetries(bool timeout)
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task NetworkFailureOrTimeoutKeepsCacheAndRetries(bool timeout, bool cached)
     {
         var http = new FakeHttp();
         http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
         http.Replies.Enqueue(_ => throw (timeout ? (Exception)new TaskCanceledException() : new HttpRequestException()));
-        using var service = Service(http, new());
+        using var service = Service(http, new(), cached);
         var previous = service.State.Timetable;
         await service.SyncAsync();
         Assert.Same(previous, service.State.Timetable);
@@ -243,10 +245,10 @@ public sealed class SyncTests
         Assert.Equal(expected, await service.SignInAsync("example@example.invalid", "synthetic"));
     }
 
-    private static SyncService Service(FakeHttp http, MemorySessions sessions)
+    private static SyncService Service(FakeHttp http, MemorySessions sessions, bool cached = true)
     {
         var clock = new FakeClock();
         return new(new(new("synthetic", "synthetic-project"), clock, http), sessions,
-            new(Samples.Timetable("basic"), clock.Now.AddHours(-1)), _ => { }, clock);
+            cached ? new(Samples.Timetable("basic"), clock.Now.AddHours(-1)) : null, _ => { }, clock);
     }
 }

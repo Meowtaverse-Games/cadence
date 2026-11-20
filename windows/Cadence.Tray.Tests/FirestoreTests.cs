@@ -17,7 +17,11 @@ public sealed class FirestoreTests
         var fixture = Samples.Fixture(name);
         var original = fixture.GetProperty("timetable").GetRawText();
         // Non-object roots are tested directly by the core; Firestore documents are maps.
-        if (fixture.GetProperty("timetable").ValueKind != JsonValueKind.Object) return;
+        if (fixture.GetProperty("timetable").ValueKind != JsonValueKind.Object)
+        {
+            Assert.Null(FirestoreDocument.Convert(original));
+            return;
+        }
         var converted = FirestoreDocument.Convert(Samples.Typed(original));
         Assert.NotNull(converted);
         var before = TimetableParser.Parse(original);
@@ -72,6 +76,7 @@ public sealed class FirestoreTests
     [InlineData("{")]
     [InlineData("[]")]
     [InlineData("{\"fields\":[]}")]
+    [InlineData("{\"fields\":{\"a\":{\"stringValue\":null}}}")]
     [InlineData("{\"fields\":{\"a\":{}}}")]
     [InlineData("{\"fields\":{\"a\":{\"integerValue\":\"1.5\"}}}")]
     [InlineData("{\"fields\":{\"a\":{\"integerValue\":true}}}")]

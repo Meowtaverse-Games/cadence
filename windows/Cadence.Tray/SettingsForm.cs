@@ -99,7 +99,11 @@ internal sealed class SettingsForm : Form
                 var message = await operation;
                 if (!IsDisposed) error.Text = message ?? service.StorageProblem ?? "";
             }
-            else await service.SignOutAsync();
+            else
+            {
+                await service.SignOutAsync();
+                if (!IsDisposed) error.Text = service.StorageProblem ?? "";
+            }
         }
         catch
         {
