@@ -14,8 +14,8 @@
 コミットメッセージ、Issue、PR 本文のどこにも書かない。
 
 - 利用者個人が特定できる情報（氏名、実際の時間割、利用状況、端末名、メールアドレス）
-- Firebase の設定ファイル（`GoogleService-Info.plist`、Windows の `firebase.json` 設定）、
-  API キー、App Store Connect の API キー、署名用の証明書や provisioning profile
+- Firebase の設定ファイル（`GoogleService-Info.plist`、Windows の `cadence-firebase.json`、
+  `.firebaserc`）、API キー、App Store Connect の API キー、署名用の証明書や provisioning profile
 - Apple の Team ID 以外のアカウント情報
 
 テストや例には合成データだけを使う。設定は `.gitignore` 済みのローカルファイルか、
