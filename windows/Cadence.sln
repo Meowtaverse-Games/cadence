@@ -6,6 +6,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cadence.Core", "Cadence.Cor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cadence.Core.Tests", "Cadence.Core.Tests\Cadence.Core.Tests.csproj", "{360FCA39-B9B9-49A7-8BD1-D09C02FA7C02}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cadence.Tray.Logic", "Cadence.Tray.Logic\Cadence.Tray.Logic.csproj", "{360FCA39-B9B9-49A7-8BD1-D09C02FA7C03}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cadence.Tray", "Cadence.Tray\Cadence.Tray.csproj", "{360FCA39-B9B9-49A7-8BD1-D09C02FA7C04}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cadence.Tray.Tests", "Cadence.Tray.Tests\Cadence.Tray.Tests.csproj", "{360FCA39-B9B9-49A7-8BD1-D09C02FA7C05}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
@@ -20,5 +26,17 @@ Global
         {360FCA39-B9B9-49A7-8BD1-D09C02FA7C02}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {360FCA39-B9B9-49A7-8BD1-D09C02FA7C02}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {360FCA39-B9B9-49A7-8BD1-D09C02FA7C02}.Release|Any CPU.Build.0 = Release|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C03}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C03}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C03}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C03}.Release|Any CPU.Build.0 = Release|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C04}.Release|Any CPU.Build.0 = Release|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C05}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C05}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {360FCA39-B9B9-49A7-8BD1-D09C02FA7C05}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal

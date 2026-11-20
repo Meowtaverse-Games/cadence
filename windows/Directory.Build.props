@@ -1,0 +1,7 @@
+<Project>
+  <!-- Single-file publishing adds SDK tooling and runtime targets. Keep those
+       locks separate from the OS-independent build/test dependency graphs. -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <NuGetLockFilePath>$(MSBuildThisFileDirectory)Cadence.Tray/PublishLocks/$(MSBuildProjectName).json</NuGetLockFilePath>
+  </PropertyGroup>
+</Project>
