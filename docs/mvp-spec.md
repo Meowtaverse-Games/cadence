@@ -71,8 +71,9 @@ Firestore の `users/{uid}/config/timetable` の1文書に、時間割全体を�
 - 文字数: Unicode のコードポイントの数（Swift は `unicodeScalars.count`、C# は
   `EnumerateRunes().Count()`）。
 - 文字列の比較: コードポイント列が同じときだけ等しいとする（Unicode の正規化をしない）。`id` の重複、
-  `timeZone`、`kind` の判定に使う。Swift の `String ==` は正準等価で比べるので使わない
-  （`"é"` U+00E9 と `"é"` は別の `id`）。C# の `StringComparer.Ordinal` と同じ結果になる。
+  `timeZone`、`kind` の判定に使う。Swift の `String ==` と、`String` を要素やキーにする
+  `Set` / `Dictionary` は正準等価で比べるので使わず、`unicodeScalars` の列で比べる
+  （`"\u00e9"` と `"e\u0301"` は別の `id`）。C# の `StringComparer.Ordinal` と同じ結果になる。
 - iOS では Firestore の SDK と `JSONSerialization` が整数・小数・真偽値をどれも `NSNumber` で返すので、
   型の判定には注意する（PR 2 と PR 4）。
 
@@ -134,7 +135,8 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   未知の `kind`、`minutes: 10.5`、`weekdays: [1.5]`、`enabled: 1`、重複した `id`、
   `block` の無い有効なパターンなど）
 - 型の定義の境目（`minutes: 10.0` と `schemaVersion: 1.0` は有効、絵文字や結合文字を含む
-  40 コードポイントの `name` は有効で 41 コードポイントは無効）
+  40 コードポイントの `name` は有効で 41 コードポイントは無効、正準等価だがコードポイント列が
+  違う2つの `id`（`"\u00e9"` と `"e\u0301"`）は重複ではなく有効）
 
 ## iOS アプリ
 
@@ -207,13 +209,21 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   DPAPI（CurrentUser）で暗号化して `%APPDATA%\Cadence\` に保存する。
 - 60 秒ごとに、Firestore の REST API で時間割の文書を取得する。取得に成功した有効な時間割を
   `%APPDATA%\Cadence\` にキャッシュし、ネットワークが無いときはキャッシュで動き続ける。
-  Firestore の typed JSON は普通の JSON に直してから検証する（`integerValue` は整数、`doubleValue` は
-  丸めずに数値のまま）。
+  Firestore の typed JSON は普通の JSON に直してから検証する:
+  - `integerValue` は文字列（例: `"10"`）で来るので整数にする。`doubleValue` は丸めずに数値のまま渡す。
+    `"NaN"` や `"Infinity"` のように文字列で来た値は数値ではないので、型の誤りとして無効になる。
+  - 空の配列は `{"arrayValue": {}}`、空のマップは `{"mapValue": {}}` で来る（`values` / `fields` が無い）。
+    それぞれ空の配列・空のオブジェクトにする（パターンが0件の時間割を無効と取り違えないため）。
+  - `nullValue` は null、`timestampValue`（`updatedAt`）は文字列にする（検証の対象外で無視される）。
 - 取得の結果ごとの扱い（ブロックが外れる方向に倒さない）:
   - 文書が無い（404）: キャッシュがあれば使い続け、「サーバーに時間割がありません」と示す。
   - ネットワークの失敗、タイムアウト、5xx、429: キャッシュで動き続け、次の周期で再試行する。
-  - 認証の失敗（401 / 403、refresh token の失効）: サインインが必要な状態にして一度だけ通知する。
-    キャッシュの時間割でのブロックは続ける（サインアウトしてもブロックは外れない）。
+  - 401: ID トークンを refresh token で取り直し、1回だけ再試行する（ID トークンは約1時間で切れるので、
+    期限の前にも取り直しておく）。
+  - サインインが必要な状態にするのは、取り直し自体が失敗したとき（`INVALID_REFRESH_TOKEN`、
+    `TOKEN_EXPIRED`、`USER_DISABLED`、`USER_NOT_FOUND`）だけ。一度だけ通知する。
+  - 403（ルールや uid の食い違い）: サインインの状態は変えず、「時間割を読む権限がありません」と示す。
+  - どの場合も、キャッシュの時間割でのブロックは続ける（サインアウトしてもブロックは外れない）。
 - ブロック中は 2 秒ごとにプロセスを調べ、ブロック対象に一致するプロセスを、子プロセスも含めて終了し、通知を出す
   （同じ exe の通知は1分に1回まで）。終了できなかったプロセス（管理者権限で動くゲームなど）は、
   ログに残して通知で知らせる。
@@ -235,9 +245,12 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   （Identity Platform へのアップグレードが要るかは要確認）。
 - Firestore のルール（`firebase/firestore.rules`）: サインインした本人が、自分の
   `users/{uid}/config/timetable` の1文書だけを読み（get）、作成・更新できる。削除と一覧は
-  できない。それ以外はすべて拒否する。書き込みでは形を最小限だけ確かめる（キーは `schemaVersion`、
-  `timeZone`、`patterns`、`updatedAt` だけ、`schemaVersion == 1`、`timeZone == 'Asia/Tokyo'`、
-  `patterns` は 20 件以下のリスト、`updatedAt` はサーバー時刻）。パターンの中身はアプリが検証する。
+  できない。それ以外はすべて拒否する。書き込みでは、書き込み後の文書の形を最小限だけ確かめる:
+  キーは `schemaVersion`、`timeZone`、`patterns`、`updatedAt` の4つちょうど（ほかのキーは禁止、
+  4つとも必須）、`schemaVersion == 1`、`timeZone == 'Asia/Tokyo'`、`patterns` は 20 件以下のリスト、
+  `updatedAt == request.time`。パターンの中身はアプリが検証する。このため iPhone（PR 4）は、
+  書き込みのたびに（一部のフィールドだけを更新する場合も）`updatedAt` を
+  `FieldValue.serverTimestamp()` で入れる。入れないと書き込みが拒否される。
   ルールはエミュレーターで自動テストする（`firebase/test/`、CI は `.github/workflows/firebase.yml`）。
 - リージョンは `asia-northeast1`。
 - 準備の手順（プロジェクトの作成、メール・パスワードの有効化、アカウントの作成、
@@ -250,15 +263,16 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 - iOS: Codemagic の `ios-release` ワークフローで App Store 配布の署名を行い、
   App Store Connect にアップロードして TestFlight の内部テストで配る。
   Family Controls の配布用 entitlement が Apple に承認されるまで、TestFlight には出せない。
-  アプリ本体と2つの extension の bundle ID のそれぞれに承認が要る見込み（要確認）なので、
-  3つとも申請する。
+  Apple の文書（Requesting the Family Controls entitlement）のとおり、Screen Time の extension にも
+  同じ申請が要るので、アプリ本体と2つの extension の3つの bundle ID で申請する。
 - iOS の SDK の版: Firebase の SDK は XcodeGen の `project.yml` で `exactVersion` を指定して固定する。
   生成した Xcode プロジェクトはコミットしないので、`ios/Package.resolved` をコミットし、
   `ios/scripts/generate-project.sh` がプロジェクトの生成後にそれを
-  `Cadence.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` にコピーする。
-  CI と Codemagic のビルドは `-onlyUsePackageVersionsFromResolvedFile` を付け、Resolved ファイルに無い版を
-  取りに行かない。依存を足したり上げたりするときは、手元で解決し直した `Package.resolved` を
-  `ios/` に戻してコミットする（仕組みは PR 2 で作り、ファイルは Firebase を入れる PR 4 で初めてできる）。
+  `ios/Cadence.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` にコピーする
+  （`ios/Package.resolved` が無ければコピーを飛ばす）。CI と Codemagic のビルドは
+  `-onlyUsePackageVersionsFromResolvedFile` を付け、`Package.resolved` に無い版を取りに行かない。
+  依存を足したり上げたりするときは、手元で解決し直した `Package.resolved` を `ios/` に戻してコミットする
+  （仕組みは PR 2 で作り、ファイルは Firebase を入れる PR 4 で初めてできる）。
 - `GoogleService-Info.plist` はリポジトリに無いので、`project.yml` では `optional: true` を付けて
   参照するか、CI ではダミーを置く。ファイルが無くてもプロジェクトの生成と CI のビルドが通るようにする。
 - 実機確認用: Codemagic に開発用の署名のワークフローを置き、登録した端末向けのビルドを作って入れる
@@ -284,6 +298,7 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 | 3a | Firestore のルールとエミュレーターでのテスト、`docs/firebase-setup.md` | なし |
 | 3b | Windows のトレイアプリ（同期、ブロック、設定画面） | 1 |
 | 4 | iOS の Screen Time 連携（extension、スケジュール、shield、画面、同期）と、Codemagic の開発用署名のワークフロー | 2、3a のルールと Firebase の準備 |
-
-PR 2、3a、3b は互いに依存しないので並行して進める。
 | 5 | Codemagic の設定と TestFlight 配布 | 4、entitlement の承認 |
+
+PR 2、3a、3b の実装は互いに依存しないので並行して進める。ただし、PR 3b を実際の Firebase と
+Windows で通して確かめるのは、PR 3a の手順で Firebase を準備し、ルールをデプロイしたあとになる。
