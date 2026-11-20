@@ -11,6 +11,8 @@ without you starting a timer.
 
 See [docs/mvp-spec.md](docs/mvp-spec.md) for the MVP specification (Japanese).
 
+Firebase の準備は [手順書](docs/firebase-setup.md)を参照してください。
+
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).

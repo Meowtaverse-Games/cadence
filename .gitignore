@@ -34,3 +34,7 @@ publish/
 # OS
 .DS_Store
 Thumbs.db
+
+# Node.js / local npm cache
+node_modules/
+.npm-cache/
