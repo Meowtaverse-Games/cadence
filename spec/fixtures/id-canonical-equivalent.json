@@ -1,0 +1,37 @@
+{
+  "name": "id-canonical-equivalent",
+  "description": "idのU+00E9とU+0065 U+0301は正規化せず別とする。月曜19:00〜19:30と20:00〜20:30（日本時間）の窓は重ならず、そのまま2つのブロック区間になる。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      {
+        "id": "\u00e9",
+        "name": "合成パターンA",
+        "enabled": true,
+        "weekdays": [1],
+        "start": "19:00",
+        "end": "19:30",
+        "segments": [{"kind": "block", "minutes": 30}]
+      },
+      {
+        "id": "e\u0301",
+        "name": "合成パターンB",
+        "enabled": true,
+        "weekdays": [1],
+        "start": "20:00",
+        "end": "20:30",
+        "segments": [{"kind": "block", "minutes": 30}]
+      }
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": true,
+    "intervals": [
+      {"start": "2026-01-05T10:00:00Z", "end": "2026-01-05T10:30:00Z"},
+      {"start": "2026-01-05T11:00:00Z", "end": "2026-01-05T11:30:00Z"}
+    ]
+  }
+}
