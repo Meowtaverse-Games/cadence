@@ -1,6 +1,6 @@
 {
   "name": "segments-element-not-object",
-  "description": "segments の要素がオブジェクトではないため、配列の形が不正。",
+  "description": "segments の要素がオブジェクトではないため、配列の形が不正。 パターンを無効化し、block必須の規則との複合違反を避ける。",
   "timetable": {
     "schemaVersion": 1,
     "timeZone": "Asia/Tokyo",
@@ -8,7 +8,7 @@
       {
         "id": "p1",
         "name": "合成パターン",
-        "enabled": true,
+        "enabled": false,
         "weekdays": [
           1
         ],

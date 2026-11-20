@@ -1,6 +1,6 @@
 {
   "name": "missing-pattern-segments",
-  "description": "必須フィールド segments が欠けている。",
+  "description": "必須フィールド segments が欠けている。 パターンを無効化し、block必須の規則との複合違反を避ける。",
   "timetable": {
     "schemaVersion": 1,
     "timeZone": "Asia/Tokyo",
@@ -8,7 +8,7 @@
       {
         "id": "p1",
         "name": "合成パターン",
-        "enabled": true,
+        "enabled": false,
         "weekdays": [
           1
         ],

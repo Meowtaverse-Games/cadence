@@ -9,6 +9,24 @@ namespace Cadence.Core.Tests;
 public sealed class FixtureTests
 {
     [Theory]
+    [InlineData("segments-element-not-object")]
+    [InlineData("segments-empty")]
+    [InlineData("segments-null")]
+    [InlineData("segments-not-array")]
+    [InlineData("missing-pattern-segments")]
+    public void AuditCountsMissingBlockDespiteMalformedSegments(string name)
+    {
+        var fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json")))!;
+        // Recreate the compound violation by enabling the otherwise unchanged fixture.
+        fixture["timetable"]!["patterns"]![0]!["enabled"] = true;
+        using var document = JsonDocument.Parse(fixture["timetable"]!.ToJsonString());
+        var violations = FixtureRuleAudit.Violations(document.RootElement);
+        Assert.Equal(2, violations.Count);
+        Assert.Contains("segments", violations);
+        Assert.Contains("missing_block", violations);
+    }
+
+    [Theory]
     [InlineData("minutes-fraction", "block_minutes")]
     [InlineData("minutes-zero", "block_minutes")]
     [InlineData("minutes-negative", "block_minutes")]

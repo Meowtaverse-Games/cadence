@@ -6,7 +6,7 @@ namespace Cadence.Core.Tests;
 
 /// <summary>
 /// Test-only audit: collects every applicable rule, without calling the production validator
-/// or stopping at the first error. Missing/malformed containers have no child rules to evaluate.
+/// or stopping at the first error. Pattern-level rules are evaluated even when segments are malformed.
 /// </summary>
 internal static class FixtureRuleAudit
 {
@@ -53,18 +53,14 @@ internal static class FixtureRuleAudit
 
             var segments = Field(pattern, "segments");
             Check(segments.ValueKind == JsonValueKind.Array && segments.GetArrayLength() is >= 1 and <= 20, "segments");
+            var hasBlock = false;
             if (segments.ValueKind == JsonValueKind.Array)
             {
-                var objectsOnly = true;
-                var hasBlock = false;
                 foreach (var segment in segments.EnumerateArray())
                 {
                     Check(segment.ValueKind == JsonValueKind.Object, "segments");
                     if (segment.ValueKind != JsonValueKind.Object)
-                    {
-                        objectsOnly = false;
                         continue;
-                    }
                     var kind = Text(Field(segment, "kind"));
                     Check(kind is "free" or "block", "segment_kind");
                     hasBlock |= kind == "block";
@@ -74,9 +70,9 @@ internal static class FixtureRuleAudit
                     if (kind == "block" && minutes.ValueKind == JsonValueKind.Number)
                         Check(minutes.GetDouble() >= 15, "block_minutes");
                 }
-                if (enabled.ValueKind == JsonValueKind.True && objectsOnly && segments.GetArrayLength() > 0)
-                    Check(hasBlock, "missing_block");
             }
+            // A malformed or absent collection does not supply a block segment.
+            if (enabled.ValueKind == JsonValueKind.True) Check(hasBlock, "missing_block");
 
             // Only window prerequisites are needed: segment/name/id validity must not hide overlaps.
             if (enabled.ValueKind == JsonValueKind.True && validDays && start.HasValue && end.HasValue)
