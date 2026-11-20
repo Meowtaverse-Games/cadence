@@ -35,7 +35,7 @@ dotnet test windows/Cadence.sln --configuration Release --no-build --no-restore
 ```
 
 依存更新時は SDK のある環境で `dotnet restore windows/Cadence.sln --force-evaluate` を実行し、
-両プロジェクトの `packages.lock.json` の差分をコミットする。
+各プロジェクトの `packages.lock.json` の差分をコミットする。
 テストは共有 JSON 全件に加え、現在時刻の境界、異なるオフセット、年をまたぐ6週間、
 20パターン×20セグメントの14日間展開を確認する。
 性能目標は50 ms、CI上の失敗判定は500 ms。JITのウォームアップ後、展開だけを計測する。
@@ -91,14 +91,16 @@ ID token はメモリだけに保持する。`timetable.json` は検証済み時
   Firebase に接続せず、共通 fixture の typed JSON 変換も検証する。
 
 上記のソリューション用 restore / build / test コマンドで全プロジェクトを検証する。
-Windows と .NET 8 SDK のある環境で確認用成果物を作るには:
+Windows と `windows/global.json` に指定した .NET 8 SDK のある環境で、
+`windows/` をカレントディレクトリにして確認用成果物を作るには:
 
 ```sh
-dotnet publish windows/Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true
+dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true
 ```
 
 通常ビルドの `packages.lock.json` と、single-file publish 用の
 `Cadence.Tray/PublishLocks/*.json` を分けて固定する。依存を更新する場合のみ
 `--force-evaluate`（publish は `-p:RestoreForceEvaluate=true`）で再計算し、差分を確認する。
+SDK 由来の publish ツールも lock に含むため、SDK 更新時は `global.json` と publish 用 lock を一緒に更新する。
 CI は build / test / publish を行い、テスト結果 `windows-test-results` と確認用 exe を
 14日間保存する。Windows 実機での通知、DPAPI、プロセス終了、自動起動は別途確認する。

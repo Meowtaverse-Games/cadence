@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          dotnet-version: '8.0.x'
+          global-json-file: windows/global.json
       - name: Restore locked dependencies
         run: dotnet restore Cadence.sln --locked-mode
       - name: Build
@@ -41,19 +41,12 @@ jobs:
           path: windows/**/TestResults/*.trx
           if-no-files-found: ignore
           retention-days: 14
-      - name: Publish preview (generate publish dependency locks)
-        run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+      - name: Publish preview with locked dependencies
+        run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true
       - name: Upload preview
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cadence-windows-win-x64
           path: windows/Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish/
           if-no-files-found: error
-          retention-days: 14
-      - name: Upload publish dependency locks
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: publish-dependency-locks
-          path: windows/Cadence.Tray/PublishLocks/*.json
           retention-days: 14
