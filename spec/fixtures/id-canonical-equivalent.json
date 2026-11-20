@@ -15,7 +15,7 @@
         "segments": [{"kind": "block", "minutes": 30}]
       },
       {
-        "id": "e\u0301",
+        "id": "\u0065\u0301",
         "name": "合成パターンB",
         "enabled": true,
         "weekdays": [1],

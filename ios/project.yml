@@ -15,7 +15,11 @@ targets:
     platform: iOS
     sources:
       - path: Cadence
-      - path: GoogleService-Info.plist
+      # XcodeGen's optional single-file source still creates a build input when absent.
+      # Enumerate only an existing plist while keeping this source optional.
+      - path: .
+        includes:
+          - GoogleService-Info.plist
         optional: true
         buildPhase: resources
     settings:
