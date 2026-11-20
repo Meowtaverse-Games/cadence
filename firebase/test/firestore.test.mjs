@@ -57,6 +57,16 @@ test('owner can update with a fresh server timestamp', async () => {
   await assertSucceeds(updateDoc(ref, { patterns: [{ id: 'synthetic-pattern' }], updatedAt: serverTimestamp() }));
   assert.equal((await getDoc(ref)).data().patterns.length, 1);
 });
+test('owner can overwrite an existing timetable without merge', async () => {
+  await seed();
+  const ref = doc(ownerDb(), ownPath);
+  const patterns = [{ id: 'replacement-pattern' }];
+  await assertSucceeds(setDoc(ref, timetable({ patterns })));
+  const result = (await getDoc(ref)).data();
+  assert.deepEqual(result.patterns, patterns);
+  assert.ok(result.updatedAt instanceof Timestamp);
+  assert.ok(result.updatedAt.toMillis() > storedTime.toMillis());
+});
 test('owner can write 20 patterns; rule intentionally does not validate their contents', async () => {
   await assertSucceeds(setDoc(doc(ownerDb(), ownPath), timetable({ patterns: Array(20).fill(null) })));
 });

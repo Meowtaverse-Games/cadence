@@ -51,6 +51,8 @@
    「Authentication」→「Settings」のアップグレード案内で条件を確認し、人が判断して実施後、
    手順1〜2を行う。Google Cloud コンソールを使う場合は、同じプロジェクトの
    「Identity Platform」→「Settings」→「User actions」で作成の許可をオフにする。
+   Google Cloud コンソールで Identity Platform の有効化を求められた場合、
+   その有効化自体が Identity Platform へのアップグレードになる。条件と料金を確認してから判断する。
 
 ### Identity Platform と料金プラン、未確定事項
 
@@ -62,8 +64,11 @@
 も Spark の日次制限を記載している。Identity Platform の利用だけを理由に
 Blaze が必須とはしない。実施時には画面に示される条件と料金を再確認する。
 
-**未確定:** 上記の公式資料はサインアップ無効化についてアップグレードが必須かを明記していない。
-アップグレード不要／必須のどちらとも断定できないため、手順1で対象プロジェクトの表示を確認する。
+**未確定:** [Firebase の User self-service の説明](https://firebase.google.com/docs/auth/users#user_self-service)は、
+Authentication の Settings で user actions を無効にできるとだけ説明し、
+アップグレードを条件にしていない。また、[アップグレードで使える機能の表](https://firebase.google.com/docs/auth#identity-platform)にも
+この設定は含まれていない。このため、アップグレード無しで使える見込みが高いと考えられるが、
+これは資料からの推測であり、最終的には手順1で対象プロジェクトの画面を確認する。
 設定が提供されず、アップグレードもしない場合は、サインアップ無効化は未完了として扱う。
 「利用者を1件だけに制限できた」と判断して運用を開始しない。
 
@@ -77,7 +82,6 @@ Blaze が必須とはしない。実施時には画面に示される条件と�
 
 管理者の環境で Node.js 24 と Firebase CLI を使う。リポジトリの `firebase/` で実行する。
 認証が必要なら、その管理者の環境で `firebase login` 相当の認証を済ませる。
-この作業を実装エージェントには行わせない。
 
 ```sh
 cd firebase
@@ -172,4 +176,4 @@ firebase emulators:exec --only firestore --project demo-cadence "node --test tes
 のとおり `demo-` ID はエミュレーター専用で、実リソースへフォールバックしない。
 テスト側でも ID とエミュレーター接続先をチェックする。テスト結果は Actions の Firebase run の
 「Test Firestore rules in the emulator」で確認する。開発用環境での実行は Java 21 と
-エミュレーターが利用できる場合に限る。この実装サーバーには Java / jar を追加しない。
+エミュレーターが利用できる場合に限る。
