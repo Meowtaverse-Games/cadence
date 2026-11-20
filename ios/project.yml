@@ -1,0 +1,37 @@
+name: Cadence
+options:
+  minimumXcodeGenVersion: 2.44.1
+  deploymentTarget:
+    iOS: '16.0'
+packages:
+  CadenceCore:
+    path: CadenceCore
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+targets:
+  Cadence:
+    type: application
+    platform: iOS
+    sources:
+      - path: Cadence
+      - path: GoogleService-Info.plist
+        optional: true
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.meowtaverse-games.cadence
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Cadence
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        MARKETING_VERSION: '0.1.0'
+        CURRENT_PROJECT_VERSION: '1'
+        TARGETED_DEVICE_FAMILY: '1,2'
+    dependencies:
+      - package: CadenceCore
+schemes:
+  Cadence:
+    build:
+      targets:
+        Cadence: all
