@@ -1,0 +1,48 @@
+name: Windows
+
+on:
+  push:
+    paths:
+      - 'windows/**'
+      - 'spec/**'
+      - '.github/workflows/windows.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - 'spec/**'
+      - '.github/workflows/windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Generate initial NuGet locks
+        run: dotnet restore Cadence.sln --use-lock-file
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-locks
+          path: windows/**/packages.lock.json
+      - name: Restore locked dependencies
+        run: dotnet restore Cadence.sln --locked-mode
+      - name: Build
+        run: dotnet build Cadence.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Cadence.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=core.trx" --logger "console;verbosity=normal"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results
+          path: windows/**/TestResults/*.trx
+          if-no-files-found: ignore
