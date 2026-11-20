@@ -70,6 +70,9 @@ Firestore の `users/{uid}/config/timetable` の1文書に、時間割全体を�
 - 真偽値: JSON の `true` / `false` だけ。`0` / `1` は真偽値ではない。
 - 文字数: Unicode のコードポイントの数（Swift は `unicodeScalars.count`、C# は
   `EnumerateRunes().Count()`）。
+- 文字列の比較: コードポイント列が同じときだけ等しいとする（Unicode の正規化をしない）。`id` の重複、
+  `timeZone`、`kind` の判定に使う。Swift の `String ==` は正準等価で比べるので使わない
+  （`"é"` U+00E9 と `"é"` は別の `id`）。C# の `StringComparer.Ordinal` と同じ結果になる。
 - iOS では Firestore の SDK と `JSONSerialization` が整数・小数・真偽値をどれも `NSNumber` で返すので、
   型の判定には注意する（PR 2 と PR 4）。
 
@@ -204,7 +207,14 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   DPAPI（CurrentUser）で暗号化して `%APPDATA%\Cadence\` に保存する。
 - 60 秒ごとに、Firestore の REST API で時間割の文書を取得する。取得に成功した有効な時間割を
   `%APPDATA%\Cadence\` にキャッシュし、ネットワークが無いときはキャッシュで動き続ける。
-- ブロック中は 2 秒ごとにプロセスを調べ、ブロック対象に一致するプロセスを終了し、通知を出す
+  Firestore の typed JSON は普通の JSON に直してから検証する（`integerValue` は整数、`doubleValue` は
+  丸めずに数値のまま）。
+- 取得の結果ごとの扱い（ブロックが外れる方向に倒さない）:
+  - 文書が無い（404）: キャッシュがあれば使い続け、「サーバーに時間割がありません」と示す。
+  - ネットワークの失敗、タイムアウト、5xx、429: キャッシュで動き続け、次の周期で再試行する。
+  - 認証の失敗（401 / 403、refresh token の失効）: サインインが必要な状態にして一度だけ通知する。
+    キャッシュの時間割でのブロックは続ける（サインアウトしてもブロックは外れない）。
+- ブロック中は 2 秒ごとにプロセスを調べ、ブロック対象に一致するプロセスを、子プロセスも含めて終了し、通知を出す
   （同じ exe の通知は1分に1回まで）。終了できなかったプロセス（管理者権限で動くゲームなど）は、
   ログに残して通知で知らせる。
 - exe 名の扱い: 保存する名前は拡張子 `.exe` を含む形（例: `steam.exe`）にそろえる。入力に
@@ -214,7 +224,8 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   Windows のログオン時に起動する（`HKCU\...\Run`）のオン・オフ。ブロックする exe 名は
   `%APPDATA%\Cadence\` にだけ保存する。
 - Firebase の接続情報（Web API キー、プロジェクト ID）は `%APPDATA%\Cadence\cadence-firebase.json`
-  から読む。リポジトリには含めない（Firebase CLI の `firebase/firebase.json` とは別物）。
+  （`{ "apiKey": "...", "projectId": "..." }`）から読む。リポジトリには含めない
+  （Firebase CLI の `firebase/firebase.json` とは別物）。
 - 時間割もキャッシュも無いときはブロックせず、トレイの表示で知らせる。
 
 ## Firebase
@@ -223,10 +234,14 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   第三者が新しいアカウントを作れないよう、サインアップを無効にする
   （Identity Platform へのアップグレードが要るかは要確認）。
 - Firestore のルール（`firebase/firestore.rules`）: サインインした本人が、自分の
-  `users/{uid}/config/timetable` の1文書だけを読み書きできる。それ以外はすべて拒否する。
+  `users/{uid}/config/timetable` の1文書だけを読み（get）、作成・更新できる。削除と一覧は
+  できない。それ以外はすべて拒否する。書き込みでは形を最小限だけ確かめる（キーは `schemaVersion`、
+  `timeZone`、`patterns`、`updatedAt` だけ、`schemaVersion == 1`、`timeZone == 'Asia/Tokyo'`、
+  `patterns` は 20 件以下のリスト、`updatedAt` はサーバー時刻）。パターンの中身はアプリが検証する。
+  ルールはエミュレーターで自動テストする（`firebase/test/`、CI は `.github/workflows/firebase.yml`）。
 - リージョンは `asia-northeast1`。
 - 準備の手順（プロジェクトの作成、メール・パスワードの有効化、アカウントの作成、
-  サインアップの無効化、ルールのデプロイ、各端末への接続情報の配置）は、PR 3 で
+  サインアップの無効化、ルールのデプロイ、各端末への接続情報の配置）は、PR 3a で
   `docs/firebase-setup.md` に書く。プロジェクトの作成とアカウントの作成は人が行い、
   ルールのデプロイは人の承認を得てから行う。
 
@@ -238,7 +253,12 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   アプリ本体と2つの extension の bundle ID のそれぞれに承認が要る見込み（要確認）なので、
   3つとも申請する。
 - iOS の SDK の版: Firebase の SDK は XcodeGen の `project.yml` で `exactVersion` を指定して固定する。
-  生成した Xcode プロジェクトはコミットしないので、`Package.resolved` を残す方法は PR 2 で決める。
+  生成した Xcode プロジェクトはコミットしないので、`ios/Package.resolved` をコミットし、
+  `ios/scripts/generate-project.sh` がプロジェクトの生成後にそれを
+  `Cadence.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` にコピーする。
+  CI と Codemagic のビルドは `-onlyUsePackageVersionsFromResolvedFile` を付け、Resolved ファイルに無い版を
+  取りに行かない。依存を足したり上げたりするときは、手元で解決し直した `Package.resolved` を
+  `ios/` に戻してコミットする（仕組みは PR 2 で作り、ファイルは Firebase を入れる PR 4 で初めてできる）。
 - `GoogleService-Info.plist` はリポジトリに無いので、`project.yml` では `optional: true` を付けて
   参照するか、CI ではダミーを置く。ファイルが無くてもプロジェクトの生成と CI のビルドが通るようにする。
 - 実機確認用: Codemagic に開発用の署名のワークフローを置き、登録した端末向けのビルドを作って入れる
@@ -261,6 +281,9 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 |---|---|---|
 | 1 | 共通テストケースと C# の `Cadence.Core`、Windows の CI | なし |
 | 2 | Swift の `CadenceCore`、XcodeGen のプロジェクト、iOS の CI | 1 の共通テストケース |
-| 3 | Windows のトレイアプリ（同期、ブロック、設定画面）、Firestore のルール、`docs/firebase-setup.md` | 1 |
-| 4 | iOS の Screen Time 連携（extension、スケジュール、shield、画面、同期）と、Codemagic の開発用署名のワークフロー | 2、3 のルールと Firebase の準備 |
+| 3a | Firestore のルールとエミュレーターでのテスト、`docs/firebase-setup.md` | なし |
+| 3b | Windows のトレイアプリ（同期、ブロック、設定画面） | 1 |
+| 4 | iOS の Screen Time 連携（extension、スケジュール、shield、画面、同期）と、Codemagic の開発用署名のワークフロー | 2、3a のルールと Firebase の準備 |
+
+PR 2、3a、3b は互いに依存しないので並行して進める。
 | 5 | Codemagic の設定と TestFlight 配布 | 4、entitlement の承認 |
