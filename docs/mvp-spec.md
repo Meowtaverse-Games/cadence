@@ -18,6 +18,7 @@ iPhone と Windows PC の指定アプリを、利用者が何も操作しなく�
 | ブロック対象 | 端末ごとに選び、その端末にだけ保存する（同期しない）。iPhone はアプリ選択画面、Windows は exe 名 |
 | タイムゾーン | MVP は `Asia/Tokyo`（UTC+9 固定、夏時間なし）だけを扱う |
 | 配布 | iOS は Codemagic でビルドし TestFlight で配布。Windows は GitHub Actions の成果物 |
+| 実機確認 | 配布用 entitlement の承認前は、Codemagic で開発用の署名のビルドを作り、登録した端末に入れて確かめる |
 | bundle ID | `com.meowtaverse-games.cadence` |
 
 ## 時間割のデータ
@@ -62,6 +63,16 @@ Firestore の `users/{uid}/config/timetable` の1文書に、時間割全体を�
 文書は全体として「有効」か「無効」のどちらかになる。一部のパターンだけを使うことはしない。
 次のどれかに当たれば無効とする。未知の追加フィールドは無視する。
 
+型の定義（すべてのフィールドに共通）:
+
+- 整数: JSON の数値で、値が整数であるもの。`10.0` は `10` と同じ整数として扱い、`10.5` は整数でない。
+  真偽値や文字列は整数ではない。Firestore には integerValue で保存する。
+- 真偽値: JSON の `true` / `false` だけ。`0` / `1` は真偽値ではない。
+- 文字数: Unicode のコードポイントの数（Swift は `unicodeScalars.count`、C# は
+  `EnumerateRunes().Count()`）。
+- iOS では Firestore の SDK と `JSONSerialization` が整数・小数・真偽値をどれも `NSNumber` で返すので、
+  型の判定には注意する（PR 2 と PR 4）。
+
 - 文書
   - `schemaVersion` が整数の `1` でない
   - `timeZone` が文字列 `"Asia/Tokyo"` でない
@@ -75,8 +86,7 @@ Firestore の `users/{uid}/config/timetable` の1文書に、時間割全体を�
     （`9:00` と `24:00` は無効）
   - `segments` が空、または 21 件以上ある
   - セグメントの `kind` が `"free"` と `"block"` 以外
-  - セグメントの `minutes` が整数でない（小数の値は、`10.0` のように小数部が 0 でも無効。
-    Firestore では integerValue で保存する）、または 1〜720 の範囲外
+  - セグメントの `minutes` が整数でない、または 1〜720 の範囲外
   - `kind: "block"` の `minutes` が 15 未満（iOS の `DeviceActivity` は 15 分未満の区間を監視できないため）
 - 有効なパターン（`enabled: true`）だけに課す規則
   - `block` のセグメントが1つも無い
@@ -118,7 +128,10 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 - 曜日の境目（日曜から月曜）、期間の境界をまたぐ区間（切り詰めない）
 - 検証規則の各項目について、無効になる入力を1つずつ（14 分のブロック、窓の重なり、
   日曜から月曜への折り返しでの重なり、接するだけの窓は有効、空の `weekdays`、`24:00`、
-  未知の `kind`、小数の `minutes`、重複した `id`、`block` の無い有効なパターンなど）
+  未知の `kind`、`minutes: 10.5`、`weekdays: [1.5]`、`enabled: 1`、重複した `id`、
+  `block` の無い有効なパターンなど）
+- 型の定義の境目（`minutes: 10.0` と `schemaVersion: 1.0` は有効、絵文字や結合文字を含む
+  40 コードポイントの `name` は有効で 41 コードポイントは無効）
 
 ## iOS アプリ
 
@@ -139,12 +152,19 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 - ブロック区間ごとに、繰り返しのない `DeviceActivitySchedule` を1つ登録する
   （名前は区間の開始時刻から作る）。開始と終了の `DateComponents` は、区間の瞬間を
   登録する時点の `Calendar.current`（端末のタイムゾーン）で年・月・日・時・分に変換して作る。
-- 同時に登録するのは、これから始まる区間（ブロック中の区間を含む）の先頭から最大 8 件までとする
-  （OS の同時監視数の上限を避けるため）。区間は現在から 14 日先までを展開して選ぶ。
-- shield をかけるか外すかは、イベントの種類で決めず、毎回「時間割と現在時刻から、いまが
-  ブロック区間の中か」で決める（冪等にする）。extension は `intervalDidStart` と
+- 同時に登録するのは、これから始まる区間（ブロック中の区間を含む）の先頭から最大 7 件と、
+  見張り用の activity 1 件の計 8 件までとする（OS の同時監視数の上限を避けるため）。
+  区間は現在から 14 日先までを展開して選ぶ。
+- 見張り用の activity は、毎日くり返す schedule（例: 毎日 00:00〜23:59）とし、そのイベントでも
+  判定と登録のやり直しを行う。電源が切れていた間に登録済みの区間をすべて過ぎても、
+  利用者の操作なしで連鎖を再開するためである。さらに本体は `BGAppRefreshTask` でも登録をやり直す
+  （実行の時刻は OS が決める）。
+- shield をかけるか外すかは、イベントの種類で決めず、毎回「時間割と時刻から、その時点が
+  ブロック区間の中か」で決める（冪等にする）。判定する時点は、`intervalDidStart` では
+  `max(現在時刻, その activity の開始時刻)`、それ以外では現在時刻とする（イベントが開始より
+  わずかに早く届いても、区間を取り逃さないため）。extension は `intervalDidStart` と
   `intervalDidEnd` のどちらでもこの判定を行い、終わった activity を `stopMonitoring` し、
-  8 件を保つように次の区間を登録する。
+  件数を保つように次の区間を登録する。
 - アプリの起動時、前面に戻ったとき、時間割を保存したとき、Firestore から変更を受け取ったとき、
   端末のタイムゾーンが変わったときは、登録をすべて解除してから登録し直し、本体からも
   同じ判定で `ManagedSettingsStore` の shield を直接かけ外しする。
@@ -160,7 +180,13 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 - `stopMonitoring` が `intervalDidEnd` を呼ぶか。呼ぶ場合も、冪等な判定によってブロック中の
   shield が外れたままにならないこと
 - 区間の境目（前の区間の終了と次の区間の開始が同時）で shield が外れたままにならないこと
-- 端末のタイムゾーンを変えたあとも、同じ瞬間にブロックが始まること
+- `intervalDidStart` が区間の開始より早く届くことがあるか
+- 電源を切る、または再起動して、登録済みの区間をすべて過ぎたあと、操作なしで次のブロックが
+  かかるか（見張り用の activity と `BGAppRefreshTask` で連鎖が再開するか）
+- 端末のタイムゾーンを、アプリを開いたまま変えた場合と、アプリを開かないまま変えた場合の
+  それぞれで、同じ瞬間にブロックが始まるか
+- `DateComponents` に `timeZone`（Asia/Tokyo）を入れた場合に、DeviceActivity がそれを尊重するか。
+  尊重するなら、端末のタイムゾーンで変換する方式より堅いので、そちらに切り替える
 
 ### 画面
 
@@ -213,14 +239,12 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   3つとも申請する。
 - iOS の SDK の版: Firebase の SDK は XcodeGen の `project.yml` で `exactVersion` を指定して固定する。
   生成した Xcode プロジェクトはコミットしないので、`Package.resolved` を残す方法は PR 2 で決める。
+- `GoogleService-Info.plist` はリポジトリに無いので、`project.yml` では `optional: true` を付けて
+  参照するか、CI ではダミーを置く。ファイルが無くてもプロジェクトの生成と CI のビルドが通るようにする。
+- 実機確認用: Codemagic に開発用の署名のワークフローを置き、登録した端末向けのビルドを作って入れる
+  （PR 4。Family Controls の開発用 entitlement は承認なしで使える）。
 - Windows: GitHub Actions で `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
   の成果物を作る。
-
-## 未決事項
-
-- PR 4 の実機確認の手段。配布用 entitlement の承認前に実機で動かすには開発用の署名が要り、
-  (a) Mac の Xcode から直接入れる、(b) Codemagic で開発用の署名のビルドを作って入れる、のどちらかになる。
-  PR 4 に着手する前に決める。
 
 ## MVP の対象外
 
@@ -238,5 +262,5 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 | 1 | 共通テストケースと C# の `Cadence.Core`、Windows の CI | なし |
 | 2 | Swift の `CadenceCore`、XcodeGen のプロジェクト、iOS の CI | 1 の共通テストケース |
 | 3 | Windows のトレイアプリ（同期、ブロック、設定画面）、Firestore のルール、`docs/firebase-setup.md` | 1 |
-| 4 | iOS の Screen Time 連携（extension、スケジュール、shield、画面、同期） | 2、3 のルールと Firebase の準備、実機確認の手段 |
+| 4 | iOS の Screen Time 連携（extension、スケジュール、shield、画面、同期）と、Codemagic の開発用署名のワークフロー | 2、3 のルールと Firebase の準備 |
 | 5 | Codemagic の設定と TestFlight 配布 | 4、entitlement の承認 |
