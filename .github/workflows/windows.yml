@@ -27,12 +27,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Generate initial NuGet locks
-        run: dotnet restore Cadence.sln --use-lock-file
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nuget-locks
-          path: windows/**/packages.lock.json
       - name: Restore locked dependencies
         run: dotnet restore Cadence.sln --locked-mode
       - name: Build
