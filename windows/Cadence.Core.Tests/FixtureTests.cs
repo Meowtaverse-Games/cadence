@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Cadence.Core;
 using Xunit;
 
@@ -7,12 +8,45 @@ namespace Cadence.Core.Tests;
 
 public sealed class FixtureTests
 {
+    [Theory]
+    [InlineData("minutes-fraction", "block_minutes")]
+    [InlineData("minutes-zero", "block_minutes")]
+    [InlineData("minutes-negative", "block_minutes")]
+    [InlineData("kind-null", "missing_block")]
+    [InlineData("kind-number", "missing_block")]
+    [InlineData("kind-unknown", "missing_block")]
+    [InlineData("missing-segment-kind", "missing_block")]
+    public void AuditDetectsOriginalCompoundViolations(string name, string additionalCode)
+    {
+        var fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json")))!;
+        var segments = fixture["timetable"]!["patterns"]![0]!["segments"]!.AsArray();
+        segments.RemoveAt(1);
+        if (name.StartsWith("minutes-", StringComparison.Ordinal)) segments[0]!["kind"] = "block";
+        using var document = JsonDocument.Parse(fixture["timetable"]!.ToJsonString());
+        var violations = FixtureRuleAudit.Violations(document.RootElement);
+        Assert.Equal(2, violations.Count);
+        Assert.Contains(fixture["expected"]!["error"]!.GetValue<string>(), violations);
+        Assert.Contains(additionalCode, violations);
+    }
+
     public static IEnumerable<object[]> Cases()
     {
         var files = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Fixtures"), "*.json")
             .OrderBy(path => path, StringComparer.Ordinal).ToArray();
         Assert.NotEmpty(files);
         return files.Select(path => new object[] { Path.GetFileNameWithoutExtension(path) });
+    }
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void SharedFixtureViolatesExactlyItsExpectedRule(string name)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json")));
+        var fixture = document.RootElement;
+        var expected = fixture.GetProperty("expected");
+        var violations = FixtureRuleAudit.Violations(fixture.GetProperty("timetable"));
+        if (expected.GetProperty("valid").GetBoolean()) Assert.Empty(violations);
+        else Assert.Equal(expected.GetProperty("error").GetString(), Assert.Single(violations));
     }
 
     [Theory]

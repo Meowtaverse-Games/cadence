@@ -6,10 +6,12 @@ namespace Cadence.Core;
 public static class TimetableParser
 {
     /// <summary>Validates the entire document, including disabled patterns.
+    /// Returns a result for any input string without throwing, including malformed JSON
+    /// or unpaired Unicode surrogates. Null input also returns invalid_json.
     /// Unknown fields are ignored. Error codes are documented in spec/fixtures/README.md.</summary>
-    public static ValidationResult Parse(string json)
+    public static ValidationResult Parse(string? json)
     {
-        ArgumentNullException.ThrowIfNull(json);
+        if (json is null) return Invalid("invalid_json");
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -17,6 +19,16 @@ public static class TimetableParser
         }
         catch (JsonException)
         {
+            return Invalid("invalid_json");
+        }
+        catch (InvalidOperationException)
+        {
+            // JsonElement.GetString rejects unpaired escaped surrogates lazily.
+            return Invalid("invalid_json");
+        }
+        catch (ArgumentException)
+        {
+            // Invalid Unicode can also be rejected while transcoding the input string.
             return Invalid("invalid_json");
         }
     }
@@ -34,6 +46,7 @@ public static class TimetableParser
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in patternArray.EnumerateArray())
         {
+            if (item.ValueKind != JsonValueKind.Object) return Invalid("patterns");
             var id = Text(Field(item, "id"));
             if (string.IsNullOrEmpty(id) || !ids.Add(id)) return Invalid("pattern_id");
             var name = Text(Field(item, "name"));
@@ -58,6 +71,7 @@ public static class TimetableParser
             var segments = new List<Segment>();
             foreach (var segment in segmentArray.EnumerateArray())
             {
+                if (segment.ValueKind != JsonValueKind.Object) return Invalid("segments");
                 var kind = Text(Field(segment, "kind"));
                 if (kind is not ("free" or "block")) return Invalid("segment_kind");
                 if (!Integer(Field(segment, "minutes"), 1, 720, out var minutes))

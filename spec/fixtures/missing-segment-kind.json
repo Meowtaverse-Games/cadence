@@ -1,6 +1,6 @@
 {
   "name": "missing-segment-kind",
-  "description": "必須フィールド kind が欠けている。",
+  "description": "必須フィールド kind が欠けている。 有効なblockを別に置き、この規則だけに違反する。",
   "timetable": {
     "schemaVersion": 1,
     "timeZone": "Asia/Tokyo",
@@ -16,6 +16,10 @@
         "end": "19:15",
         "segments": [
           {
+            "minutes": 15
+          },
+          {
+            "kind": "block",
             "minutes": 15
           }
         ]

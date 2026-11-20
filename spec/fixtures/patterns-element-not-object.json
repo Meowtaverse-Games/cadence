@@ -1,0 +1,17 @@
+{
+  "name": "patterns-element-not-object",
+  "description": "patterns の要素がオブジェクトではないため、配列の形が不正。",
+  "timetable": {
+    "schemaVersion": 1,
+    "timeZone": "Asia/Tokyo",
+    "patterns": [
+      1
+    ]
+  },
+  "from": "2026-01-05T00:00:00Z",
+  "to": "2026-01-06T00:00:00Z",
+  "expected": {
+    "valid": false,
+    "error": "patterns"
+  }
+}
