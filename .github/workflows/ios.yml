@@ -1,0 +1,64 @@
+name: iOS
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - 'spec/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'spec/**'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+jobs:
+  core:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show pinned Xcode and Swift versions
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Test CadenceCore (debug)
+        working-directory: ios/CadenceCore
+        run: swift test
+
+  app:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show pinned Xcode version
+        run: xcodebuild -version
+      - name: Install XcodeGen 2.44.1 from verified official release
+        env:
+          XCODEGEN_SHA256: a2e905fb68446e9bb4008cdfe2e13e3f176d0cbcca828b71770f8e53fca91b73
+        run: |
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.zip -o "$RUNNER_TEMP/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum --algorithm 256 --check
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          echo "$RUNNER_TEMP/xcodegen/xcodegen/bin" >> "$GITHUB_PATH"
+      - name: Generate project without Firebase configuration
+        run: |
+          xcodegen --version
+          test ! -e ios/GoogleService-Info.plist
+          ios/scripts/generate-project.sh
+      - name: Build unsigned simulator app with locked package resolution
+        run: >-
+          xcodebuild build
+          -project ios/Cadence.xcodeproj
+          -scheme Cadence
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/CadenceDerivedData"
+          -onlyUsePackageVersionsFromResolvedFile
+          CODE_SIGNING_ALLOWED=NO
