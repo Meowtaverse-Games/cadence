@@ -52,7 +52,7 @@ jobs:
           xcodegen --version
           test ! -e ios/GoogleService-Info.plist
           ios/scripts/generate-project.sh
-      - name: Build unsigned simulator app with locked package resolution
+      - name: Build unsigned simulator app and extensions with locked package resolution
         run: >-
           xcodebuild build
           -project ios/Cadence.xcodeproj
@@ -62,3 +62,8 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/CadenceDerivedData"
           -onlyUsePackageVersionsFromResolvedFile
           CODE_SIGNING_ALLOWED=NO
+      - name: Verify both extensions are embedded
+        run: |
+          app="$RUNNER_TEMP/CadenceDerivedData/Build/Products/Debug-iphonesimulator/Cadence.app"
+          test -d "$app/PlugIns/DeviceActivityMonitor.appex"
+          test -d "$app/PlugIns/ShieldConfiguration.appex"
