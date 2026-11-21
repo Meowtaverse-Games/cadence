@@ -35,7 +35,77 @@ dotnet test windows/Cadence.sln --configuration Release --no-build --no-restore
 ```
 
 依存更新時は SDK のある環境で `dotnet restore windows/Cadence.sln --force-evaluate` を実行し、
-両プロジェクトの `packages.lock.json` の差分をコミットする。
+各プロジェクトの `packages.lock.json` の差分をコミットする。
 テストは共有 JSON 全件に加え、現在時刻の境界、異なるオフセット、年をまたぐ6週間、
 20パターン×20セグメントの14日間展開を確認する。
 性能目標は50 ms、CI上の失敗判定は500 ms。JITのウォームアップ後、展開だけを計測する。
+
+## Windows トレイアプリ
+
+Windows x64 用の確認用ビルドは GitHub Actions の **Windows** workflow にある
+`cadence-windows-win-x64` 成果物からダウンロードする（保存期間14日）。ZIP を展開し、
+書き込み可能で移動しないフォルダーに置いて `Cadence.Tray.exe` を起動する。
+.NET ランタイムの別途インストールは不要。署名していないため SmartScreen の警告が
+表示されることがある。取得元と対象コミットを確認してから実行する。
+管理者権限は不要で、二重起動はしない。
+
+起動前に `%APPDATA%\Cadence\cadence-firebase.json` を作る。
+以下の値は置き換え用の例であり、実際の接続情報はコミットしない。
+
+```json
+{ "apiKey": "<Firebase Web API key>", "projectId": "<Firebase project ID>" }
+```
+
+設定ファイルの配置・変更後はアプリを再起動する。設定が無い、不正、または読み取り不能でも、
+保存済みの時間割によるブロックは継続する。Firebase のアカウントとルールの準備は別途必要。
+
+- トレイをダブルクリックするか、右クリック →「設定...」で設定を開く。
+- メールとパスワードでサインインすると直ちに同期する。以後60秒ごとに取得する。
+  「今すぐ同期」でも取得できる。パスワードは保存しない。
+- exe 名を入力して追加するか「実行中のアプリから追加...」で選ぶ。
+  パスは指定できない。大文字小文字を無視して比較し、自分自身は終了しない。
+- ブロック中は2秒ごとに対象プロセスを子プロセスごと終了する。
+  未保存のデータは失われる可能性がある。確認には未保存の作業が無いアプリを使う。
+  管理者権限で動くアプリなどは終了できないことがある。
+- 赤い丸はブロック中、緑は自由時間、オレンジは時間割なし、同期・認証・保存の問題を示す。
+  ツールチップに状態、次の切り替え、最終同期を表示する。時刻はすべて日本時間。
+- ネットワーク切断、無効な時間割、文書の削除、認証切れでも、最後の有効な時間割で動く。
+  サインアウトしてもキャッシュと exe 一覧は残り、ブロックは継続する。
+  キャッシュも時間割も無い場合はブロックしない。
+- 取得が401ならトークンを更新して、その周期で一度だけ再取得する。再び401ならセッションを残して
+  次の周期で再試行する。403なら「時間割を読む権限がありません」と表示し、サインイン状態を保つ。
+  更新時の `INVALID_REFRESH_TOKEN` / `TOKEN_EXPIRED` / `USER_DISABLED` / `USER_NOT_FOUND` だけが
+  再サインインの対象。それ以外の認証設定・通信の失敗でもセッションとキャッシュは保持する。
+- 「Windows のログオン時に起動する」は現在のユーザーの Run レジストリに登録する。
+  exe を移動した場合は新しい場所でオフ → オンにする。無効にするにはチェックを外す。
+- 終了はトレイの「終了」。終了中・PC のスリープ中にはプロセスを監視できない。
+
+ローカルデータはすべて `%APPDATA%\Cadence\` に保存する。
+`session.dat` は refresh token と表示用メールを DPAPI CurrentUser で暗号化したもの。
+ID token はメモリだけに保持する。`timetable.json` は検証済み時間割と取得時刻、
+`executables.json` はこの PC の対象一覧。ログは `logs\yyyy-MM-dd.txt` に保存し、
+書き込み時に14日を過ぎたログを削除する。ログに認証情報や HTTP 本文は出力しない。
+設定・セッション・キャッシュの保存は一時ファイルへの書き込み後に置き換える。
+ログは追記し、同じ exe の終了失敗のログは1分に1回までに制限する（通知とは別に数える）。
+
+### 構成と検証
+
+- `Cadence.Tray`: WinForms、DPAPI、Run レジストリ、プロセス操作。
+- `Cadence.Tray.Logic`: REST、キャッシュ選択、認証更新、次の切り替え、exe 名、通知制限。
+- `Cadence.Tray.Tests`: 偽の `TimeProvider` と `HttpMessageHandler` によるテスト。
+  Firebase に接続せず、共通 fixture の typed JSON 変換も検証する。
+
+上記のソリューション用 restore / build / test コマンドで全プロジェクトを検証する。
+Windows と `windows/global.json` に指定した .NET 8 SDK のある環境で、
+`windows/` をカレントディレクトリにして確認用成果物を作るには:
+
+```sh
+dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true
+```
+
+通常ビルドの `packages.lock.json` と、single-file publish 用の
+`Cadence.Tray/PublishLocks/*.json` を分けて固定する。依存を更新する場合のみ
+`--force-evaluate`（publish は `-p:RestoreForceEvaluate=true`）で再計算し、差分を確認する。
+SDK 由来の publish ツールも lock に含むため、SDK 更新時は `global.json` と publish 用 lock を一緒に更新する。
+CI は build / test / publish を行い、テスト結果 `windows-test-results` と確認用 exe を
+14日間保存する。Windows 実機での通知、DPAPI、プロセス終了、自動起動は別途確認する。

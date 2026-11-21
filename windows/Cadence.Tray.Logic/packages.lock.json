@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0": {
+      "cadence.core": {
+        "type": "Project"
+      }
+    }
+  }
+}

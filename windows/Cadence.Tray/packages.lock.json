@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net8.0-windows7.0": {
+      "cadence.core": {
+        "type": "Project"
+      },
+      "cadence.tray.logic": {
+        "type": "Project",
+        "dependencies": {
+          "Cadence.Core": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

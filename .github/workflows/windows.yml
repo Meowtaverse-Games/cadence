@@ -16,9 +16,9 @@ permissions:
   contents: read
 
 jobs:
-  core:
+  windows:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: windows
@@ -26,13 +26,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          dotnet-version: '8.0.x'
+          global-json-file: windows/global.json
       - name: Restore locked dependencies
         run: dotnet restore Cadence.sln --locked-mode
       - name: Build
         run: dotnet build Cadence.sln --configuration Release --no-restore
       - name: Test
-        run: dotnet test Cadence.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=core.trx" --logger "console;verbosity=normal"
+        run: dotnet test Cadence.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=tests.trx" --logger "console;verbosity=normal"
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -40,3 +40,13 @@ jobs:
           name: windows-test-results
           path: windows/**/TestResults/*.trx
           if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish preview with locked dependencies
+        run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true
+      - name: Upload preview
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cadence-windows-win-x64
+          path: windows/Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish/
+          if-no-files-found: error
+          retention-days: 14
