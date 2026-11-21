@@ -47,7 +47,7 @@ public sealed record FirebaseConfig(string ApiKey, string ProjectId)
         path = System.IO.Path.GetFullPath(path);
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
                 return new(FirebaseConfigStatus.InvalidKeys, path, KeyProblem: "ルートを JSON オブジェクトにしてください");

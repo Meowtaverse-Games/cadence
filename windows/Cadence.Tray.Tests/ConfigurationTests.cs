@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using Cadence.Core;
 using Cadence.Tray.Logic;
 using Xunit;
@@ -116,6 +117,16 @@ public sealed class ConfigurationTests : IDisposable
         Assert.Null(result.PlacementHint);
         Assert.DoesNotContain("synthetic-key", result.Message);
         Assert.DoesNotContain("synthetic-project", result.Message);
+    }
+
+    [Fact]
+    public void ValidFileWithUtf8BomCanBeRead()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+        File.WriteAllText(ConfigPath, Valid, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        var result = FirebaseConfig.Load(ConfigPath);
+        Assert.True(result.Usable);
+        Assert.Equal(new FirebaseConfig("synthetic-key", "synthetic-project"), result.Config);
     }
 
     [Theory]
