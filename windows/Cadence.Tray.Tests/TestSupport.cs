@@ -14,18 +14,26 @@ internal sealed class FakeClock : TimeProvider
 internal sealed class MemorySessions : ISessionStore
 {
     public SavedSession? Value { get; set; } = new("synthetic-refresh", "example@example.invalid");
-    public SavedSession? Load() => Value;
-    public void Save(SavedSession? session) => Value = session;
+    public bool FailLoad { get; set; }
+    public bool FailSave { get; set; }
+    public SavedSession? Load() => FailLoad ? throw new IOException() : Value;
+    public void Save(SavedSession? session)
+    {
+        if (FailSave) throw new IOException();
+        Value = session;
+    }
 }
 
 internal sealed class FakeHttp : HttpMessageHandler
 {
     public Queue<Func<HttpRequestMessage, Task<HttpResponseMessage>>> Replies { get; } = new();
     public int Calls { get; private set; }
+    public List<(string Host, string Path, string? Bearer)> Requests { get; } = new();
     public void Enqueue(HttpStatusCode status, string body) => Replies.Enqueue(_ => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) }));
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Calls++;
+        Requests.Add((request.RequestUri!.Host, request.RequestUri.AbsolutePath, request.Headers.Authorization?.Parameter));
         return Replies.Dequeue()(request);
     }
 }

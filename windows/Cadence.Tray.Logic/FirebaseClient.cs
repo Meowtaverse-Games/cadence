@@ -22,8 +22,7 @@ public sealed class FirebaseFailure(HttpStatusCode status, string code) : Except
 {
     public HttpStatusCode Status { get; } = status;
     public string Code { get; } = code;
-    public bool RequiresSignIn => Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden ||
-        Code is "INVALID_REFRESH_TOKEN" or "TOKEN_EXPIRED" or "USER_DISABLED" or "USER_NOT_FOUND";
+    public bool RequiresSignIn => Code is "INVALID_REFRESH_TOKEN" or "TOKEN_EXPIRED" or "USER_DISABLED" or "USER_NOT_FOUND";
 }
 
 public static class SignInErrors

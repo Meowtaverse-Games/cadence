@@ -53,8 +53,9 @@ public static class FirestoreDocument
                 writer.WriteNumberValue(long.Parse(data.GetString()!, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture));
                 break;
             case "doubleValue":
-                if (data.ValueKind != JsonValueKind.Number) throw new FormatException();
-                // Preserve the JSON number, including fractions and integral doubles.
+                if (data.ValueKind is not (JsonValueKind.Number or JsonValueKind.String)) throw new FormatException();
+                // Preserve non-finite string values too: Core rejects them only when
+                // used in a validated field, while unknown metadata remains ignorable.
                 data.WriteTo(writer);
                 break;
             case "booleanValue": writer.WriteBooleanValue(data.GetBoolean()); break;

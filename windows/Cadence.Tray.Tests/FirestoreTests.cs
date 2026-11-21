@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Cadence.Core;
 using Cadence.Tray.Logic;
 using Xunit;
@@ -73,6 +74,33 @@ public sealed class FirestoreTests
     }
 
     [Theory]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    [InlineData("-Infinity")]
+    [InlineData("10")]
+    public void StringDoublesRemainStringsAndOnlyInvalidateValidatedFields(string value)
+    {
+        var ordinary = Samples.Timetable("basic");
+        var typed = Samples.Typed(ordinary).Replace("{\"integerValue\":\"10\"}",
+            new JsonObject { ["doubleValue"] = value }.ToJsonString());
+        var converted = FirestoreDocument.Convert(typed);
+        Assert.NotNull(converted);
+        using var document = JsonDocument.Parse(converted);
+        var minutes = document.RootElement.GetProperty("patterns")[0].GetProperty("segments")[0].GetProperty("minutes");
+        Assert.Equal(JsonValueKind.String, minutes.ValueKind);
+        Assert.Equal(value, minutes.GetString());
+        Assert.Equal("segment_minutes", TimetableParser.Parse(converted).ErrorCode);
+
+        var metadata = JsonNode.Parse(Samples.Typed(ordinary))!;
+        metadata["fields"]!["updatedAt"] = new JsonObject { ["doubleValue"] = value };
+        var result = TimetableParser.Parse(FirestoreDocument.Convert(metadata.ToJsonString()));
+        Assert.True(result.Valid);
+        var clock = new FakeClock();
+        Assert.Equal(TimetableExpander.Expand(TimetableParser.Parse(ordinary).Timetable!, clock.Now, clock.Now.AddDays(14)),
+            TimetableExpander.Expand(result.Timetable!, clock.Now, clock.Now.AddDays(14)));
+    }
+
+    [Theory]
     [InlineData("{")]
     [InlineData("[]")]
     [InlineData("{\"fields\":[]}")]
@@ -80,7 +108,6 @@ public sealed class FirestoreTests
     [InlineData("{\"fields\":{\"a\":{}}}")]
     [InlineData("{\"fields\":{\"a\":{\"integerValue\":\"1.5\"}}}")]
     [InlineData("{\"fields\":{\"a\":{\"integerValue\":true}}}")]
-    [InlineData("{\"fields\":{\"a\":{\"doubleValue\":\"10\"}}}")]
     [InlineData("{\"fields\":{\"a\":{\"mapValue\":[]}}}")]
     [InlineData("{\"fields\":{\"a\":{\"arrayValue\":{\"values\":{}}}}}")]
     [InlineData("{\"fields\":{\"a\":{\"booleanValue\":1}}}")]

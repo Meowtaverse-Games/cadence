@@ -37,7 +37,7 @@ public sealed class SyncState
         Problem = status switch
         {
             HttpStatusCode.NotFound => "サーバーに時間割がありません",
-            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "サインインが必要です",
+            HttpStatusCode.Forbidden => "時間割を読む権限がありません",
             _ => "同期できません（次の周期で再試行）"
         };
         return null;
@@ -61,7 +61,10 @@ public sealed class SyncService : IDisposable
     public SyncState State { get; }
     public bool Configured => client is not null;
     public string? Email => saved?.Email;
-    public string? StorageProblem { get; private set; }
+    private bool sessionStorageFailed;
+    private bool cacheStorageFailed;
+    public string? StorageProblem => sessionStorageFailed || cacheStorageFailed
+        ? "ローカルファイルを保存・読み込みできません" : null;
     public string? AuthProblem => !Configured ? "接続設定がないか不正なためサインインできません" : saved is null ? "サインインが必要です" : null;
 
     public SyncService(FirebaseClient? client, ISessionStore sessions, TimetableCache? cache,
@@ -74,7 +77,7 @@ public sealed class SyncService : IDisposable
         this.log = log ?? (_ => { });
         State = new(cache);
         try { saved = sessions.Load(); }
-        catch { StorageFailed(); }
+        catch { SessionStorageFailed(); }
     }
 
     public bool TakeAuthNotification()
@@ -131,27 +134,52 @@ public sealed class SyncService : IDisposable
         try
         {
             if (token is null || token.NeedsRefresh(clock))
+                await RefreshTokenAsync(cancellation);
+            var response = await client.FetchAsync(token!, cancellation);
+            if (response.Status == HttpStatusCode.Unauthorized)
             {
-                token = await client.RefreshAsync(saved.RefreshToken, cancellation);
-                saved = saved with { RefreshToken = token.RefreshToken };
-                PersistSession();
+                // Refresh even before expiry, then retry the GET exactly once this cycle.
+                await RefreshTokenAsync(cancellation);
+                response = await client.FetchAsync(token!, cancellation);
             }
-            var response = await client.FetchAsync(token, cancellation);
             var cache = State.Apply(response.Status, response.Body, clock);
-            if (response.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) RequireSignIn();
             if (cache is not null)
             {
-                try { saveCache(cache); }
-                catch { StorageFailed(); }
+                try
+                {
+                    saveCache(cache);
+                    cacheStorageFailed = false;
+                }
+                catch
+                {
+                    cacheStorageFailed = true;
+                    log("storage_failed");
+                }
             }
         }
         catch (FirebaseFailure failure) when (failure.RequiresSignIn) { RequireSignIn(); }
+        catch (FirebaseFailure)
+        {
+            State.SetProblem("認証の設定を確認してください（次の周期で再試行）");
+            log("token_refresh_failed");
+        }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch
         {
             State.SetProblem("同期できません（次の周期で再試行）");
             log("sync_failed");
         }
+    }
+
+    private async Task RefreshTokenAsync(CancellationToken cancellation)
+    {
+        // A failed forced refresh must be retried next cycle even if the old token
+        // had not reached its scheduled refresh time. Keep the saved session.
+        var session = saved!;
+        token = null;
+        token = await client!.RefreshAsync(session.RefreshToken, cancellation);
+        saved = session with { RefreshToken = token.RefreshToken };
+        PersistSession();
     }
 
     private void RequireSignIn()
@@ -166,12 +194,16 @@ public sealed class SyncService : IDisposable
 
     private void PersistSession()
     {
-        try { sessions.Save(saved); }
-        catch { StorageFailed(); }
+        try
+        {
+            sessions.Save(saved);
+            sessionStorageFailed = false;
+        }
+        catch { SessionStorageFailed(); }
     }
-    private void StorageFailed()
+    private void SessionStorageFailed()
     {
-        StorageProblem = "ローカルファイルを保存・読み込みできません";
+        sessionStorageFailed = true;
         log("storage_failed");
     }
     public void Dispose() => client?.Dispose();

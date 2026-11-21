@@ -39,7 +39,7 @@ public sealed class SyncTests
             Assert.Equal(cached ? cache.FetchedAt : (DateTimeOffset?)null, state.LastSync);
             Assert.Equal(status switch
             {
-                401 or 403 => "サインインが必要です",
+                403 => "時間割を読む権限がありません",
                 404 => "サーバーに時間割がありません",
                 _ => "同期できません（次の周期で再試行）"
             }, state.Problem);
@@ -98,21 +98,123 @@ public sealed class SyncTests
     }
 
     [Theory]
+    [InlineData(200)]
     [InlineData(401)]
-    [InlineData(403)]
-    public async Task UnauthorizedFetchNotifiesOnceAndRetainsBlocking(int status)
+    public async Task UnauthorizedFetchRefreshesAndRetriesOnlyOnce(int retryStatus)
     {
         var http = new FakeHttp();
         http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
-        http.Enqueue((HttpStatusCode)status, "{}");
-        using var service = Service(http, new());
+        http.Enqueue(HttpStatusCode.Unauthorized, "{}");
+        http.Enqueue(HttpStatusCode.OK, Samples.Refresh.Replace("synthetic-id", "synthetic-renewed-id").Replace("synthetic-next", "synthetic-rotated"));
+        http.Enqueue((HttpStatusCode)retryStatus, Samples.Typed(Samples.Empty));
+        var sessions = new MemorySessions();
+        using var service = Service(http, sessions);
+        var previous = service.State.Timetable;
         await service.SyncAsync();
-        Assert.True(service.TakeAuthNotification());
+        Assert.Equal(4, http.Calls);
+        Assert.Equal("securetoken.googleapis.com", http.Requests[2].Host);
+        Assert.Equal(http.Requests[1].Path, http.Requests[3].Path);
+        Assert.Equal("synthetic-renewed-id", http.Requests[3].Bearer);
+        Assert.Equal("synthetic-rotated", sessions.Value!.RefreshToken);
+        Assert.NotNull(service.Email);
         Assert.False(service.TakeAuthNotification());
-        Assert.Null(service.Email);
-        Assert.True(TimetableExpander.IsBlockedAt(service.State.Timetable!, DateTimeOffset.Parse("2026-01-05T10:15:00Z")));
+        if (retryStatus == 200)
+        {
+            Assert.Null(service.State.Problem);
+            Assert.NotSame(previous, service.State.Timetable);
+        }
+        else
+        {
+            Assert.Contains("再試行", service.State.Problem);
+            Assert.Same(previous, service.State.Timetable);
+            // The next period may retry again, but the current period has stopped.
+            http.Enqueue(HttpStatusCode.Unauthorized, "{}");
+            http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
+            http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
+            await service.SyncAsync();
+            Assert.Equal(7, http.Calls);
+            Assert.Null(service.State.Problem);
+        }
+        Assert.Empty(http.Replies);
+    }
+
+    [Fact]
+    public async Task ForbiddenFetchKeepsSessionAndBlockingWithoutRefreshingAgain()
+    {
+        var http = new FakeHttp();
+        http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
+        http.Enqueue(HttpStatusCode.Forbidden, "{}");
+        var sessions = new MemorySessions();
+        using var service = Service(http, sessions);
+        var previous = service.State.Timetable;
         await service.SyncAsync();
         Assert.Equal(2, http.Calls);
+        Assert.Equal("時間割を読む権限がありません", service.State.Problem);
+        Assert.NotNull(service.Email);
+        Assert.NotNull(sessions.Value);
+        Assert.False(service.TakeAuthNotification());
+        Assert.Same(previous, service.State.Timetable);
+        Assert.True(TimetableExpander.IsBlockedAt(service.State.Timetable!, DateTimeOffset.Parse("2026-01-05T10:15:00Z")));
+        http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
+        await service.SyncAsync();
+        Assert.Equal(3, http.Calls);
+        Assert.Null(service.State.Problem);
+    }
+
+    [Theory]
+    [InlineData("INVALID_REFRESH_TOKEN")]
+    [InlineData("TOKEN_EXPIRED")]
+    [InlineData("USER_DISABLED")]
+    [InlineData("USER_NOT_FOUND")]
+    public async Task PermanentForcedRefreshFailureClearsSessionAndNotifiesOnce(string code)
+    {
+        var http = new FakeHttp();
+        http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
+        http.Enqueue(HttpStatusCode.Unauthorized, "{}");
+        http.Enqueue(HttpStatusCode.BadRequest, "{\"error\":{\"message\":\"" + code + "\"}}");
+        var sessions = new MemorySessions();
+        using var service = Service(http, sessions);
+        var previous = service.State.Timetable;
+        await service.SyncAsync();
+        Assert.Equal(3, http.Calls);
+        Assert.Null(sessions.Value);
+        Assert.Null(service.Email);
+        Assert.Equal("サインインが必要です", service.State.Problem);
+        Assert.Same(previous, service.State.Timetable);
+        Assert.True(service.TakeAuthNotification());
+        await service.SyncAsync();
+        Assert.False(service.TakeAuthNotification());
+        Assert.Equal(3, http.Calls);
+    }
+
+    [Theory]
+    [InlineData(403)]
+    [InlineData(401)]
+    [InlineData(500)]
+    [InlineData(0)]
+    public async Task OtherForcedRefreshFailuresRetainSessionAndRetryRefreshNextCycle(int status)
+    {
+        var http = new FakeHttp();
+        http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
+        http.Enqueue(HttpStatusCode.Unauthorized, "{}");
+        if (status == 0) http.Replies.Enqueue(_ => throw new HttpRequestException());
+        else http.Enqueue((HttpStatusCode)status, "{\"error\":{\"message\":\"PERMISSION_DENIED\"}}");
+        var sessions = new MemorySessions();
+        using var service = Service(http, sessions);
+        var previous = service.State.Timetable;
+        await service.SyncAsync();
+        Assert.Equal(3, http.Calls);
+        Assert.NotNull(service.Email);
+        Assert.Equal("synthetic-next", sessions.Value!.RefreshToken);
+        Assert.False(service.TakeAuthNotification());
+        Assert.Same(previous, service.State.Timetable);
+        Assert.Contains(status == 0 ? "同期できません" : "認証の設定を確認してください", service.State.Problem);
+        http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
+        http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
+        await service.SyncAsync();
+        Assert.Equal("securetoken.googleapis.com", http.Requests[3].Host);
+        Assert.Equal(5, http.Calls);
+        Assert.Null(service.State.Problem);
     }
 
     [Theory]
@@ -227,11 +329,47 @@ public sealed class SyncTests
         var http = new FakeHttp();
         http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
         http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
-        using var service = new SyncService(new(new("synthetic", "synthetic-project"), clock, http), new MemorySessions(), null, _ => throw new IOException(), clock);
+        var failSave = true;
+        using var service = new SyncService(new(new("synthetic", "synthetic-project"), clock, http), new MemorySessions(), null,
+            _ => { if (failSave) throw new IOException(); }, clock);
         await service.SyncAsync();
         Assert.NotNull(service.State.Timetable);
         Assert.NotNull(service.StorageProblem);
         Assert.Equal(clock.Now, service.State.LastSync);
+        // A successful session write must not hide an unresolved cache failure.
+        http.Enqueue(HttpStatusCode.OK, Samples.Login);
+        http.Enqueue(HttpStatusCode.NotFound, "{}");
+        await service.SignInAsync("example@example.invalid", "synthetic");
+        Assert.NotNull(service.StorageProblem);
+        failSave = false;
+        http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
+        await service.SyncAsync();
+        Assert.Null(service.StorageProblem);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SuccessfulSessionSaveClearsPriorLoadOrSaveError(bool loadFailure)
+    {
+        var http = new FakeHttp();
+        var sessions = new MemorySessions { FailLoad = loadFailure, FailSave = !loadFailure };
+        using var service = Service(http, sessions);
+        if (!loadFailure)
+        {
+            http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
+            http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
+            await service.SyncAsync();
+        }
+        // Successful cache writes cannot hide session persistence failures either.
+        Assert.NotNull(service.StorageProblem);
+        sessions.FailLoad = false;
+        sessions.FailSave = false;
+        http.Enqueue(HttpStatusCode.OK, Samples.Login);
+        http.Enqueue(HttpStatusCode.NotFound, "{}");
+        Assert.Null(await service.SignInAsync("example@example.invalid", "synthetic"));
+        Assert.Null(service.StorageProblem);
+        Assert.NotNull(sessions.Value);
     }
 
     [Theory]
