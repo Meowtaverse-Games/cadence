@@ -106,13 +106,19 @@ get / create / update のみの許可、書き込みの制約を確認する。
 
 ## 5. iOS アプリを登録する
 
-1. 「プロジェクトの概要」→ iOS アイコン（または「プロジェクトの設定」→「全般」→
-   「マイアプリ」→「アプリを追加」→ iOS）を開く。
+ここも Xcode や App Store Connect ではなく、ブラウザの Firebase コンソールで行う。
+
+1. Firebase コンソールで対象のプロジェクトを開き、左上の「プロジェクトの概要（Project Overview）」→
+   「アプリを追加」→ iOS（「iOS+」と表示されることもある）を選ぶ。見当たらない場合は、歯車→
+   「プロジェクトの設定」→「全般」→「マイアプリ」→「アプリを追加」→ iOS でもよい。
+   登録の途中に出る SDK の追加や初期化コードの説明は読み飛ばしてよい（アプリ実装時に行う）。
+   App Store ID などの任意項目は空欄でよい。
 2. bundle ID を **`com.meowtaverse-games.cadence`** として登録する。
    「マイアプリ」に登録された bundle ID が一致することを確認する。
 3. `GoogleService-Info.plist` をダウンロードして `ios/GoogleService-Info.plist` に配置する。
    SDK の組み込みはアプリ実装時に行う。Codemagic では環境変数からこのファイルを
-   書き出す予定であり、その設定は別途行う。
+   書き出す予定であり、その設定は別途行う。リポジトリを clone していない環境では、
+   ダウンロードしたファイルを手元に保管するだけでよい（手順4も不要）。
 4. リポジトリのルートで `git check-ignore ios/GoogleService-Info.plist` がパスを表示し、
    `git status --short` にファイルが出ないことを確認する。強制追加はしない。
 
@@ -121,15 +127,21 @@ get / create / update のみの許可、書き込みの制約を確認する。
 1. Firebase コンソールの歯車→「プロジェクトの設定」→「全般」で「プロジェクト ID」と
    「ウェブ API キー（Web API Key）」を確認する。キーが見当たらない場合は、同じプロジェクトの
    Google Cloud コンソール「API とサービス」→「認証情報」の Firebase 用 Browser key を確認する。
-2. Windows のエクスプローラーで `%APPDATA%` を開き `Cadence` フォルダーを作る。
+2. Windows のエクスプローラーのアドレスバーに `%APPDATA%` と入力して Enter を押す。
+   `C:\Users\<ユーザー名>\AppData\Roaming` が開くので、そこに `Cadence` フォルダーを作る。
+   `AppData` の直下（`AppData\Cadence`）ではアプリが読まない。
    `%APPDATA%\Cadence\cadence-firebase.json` を以下の形で保存する。
+   値はすべて `"` で囲む（`"projectId": "<プロジェクト ID>"` の始めの `"` を落としやすい）。
 
    ```json
    { "apiKey": "<Web API キー>", "projectId": "<プロジェクト ID>" }
    ```
 
 3. ファイル名が `.json.txt` でないこと、JSON のキーが `apiKey` と `projectId` の2つで、
-   設定画面の値と一致することをローカルで確認する。このファイルをリポジトリに置かない。
+   設定画面の値と一致することをローカルで確認する。PowerShell で
+   `Get-Content "$env:APPDATA\Cadence\cadence-firebase.json" -Raw | ConvertFrom-Json` を実行し、
+   エラーにならず2つのキーが表示されれば JSON として正しい（表示された API キーは共有しない）。
+   このファイルをリポジトリに置かない。
    Firebase CLI 用の `firebase/firebase.json` とは別のファイルである。
 
 [Firebase の API キーの説明](https://firebase.google.com/docs/projects/api-keys)のとおり、
