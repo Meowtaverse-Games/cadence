@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Cadence.Tray.Logic;
 
 namespace Cadence.Tray;
@@ -9,7 +10,10 @@ internal sealed class SettingsForm : Form
     private readonly Func<List<string>, bool> saveExecutables;
     private readonly Action changed;
     private readonly DailyLog log;
+    private readonly Func<Task> reloadConfiguration;
     private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(640, 0) };
+    private readonly Label connection = new() { AutoSize = true, MaximumSize = new Size(640, 0) };
+    private readonly Button reload = new() { Text = "接続設定を読み直す", AutoSize = true };
     private readonly Label account = new() { AutoSize = true };
     private readonly Label sync = new() { AutoSize = true };
     private readonly Label error = new() { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new Size(640, 0) };
@@ -23,13 +27,14 @@ internal sealed class SettingsForm : Form
     private bool busy;
 
     public SettingsForm(SyncService service, List<string> executables, Func<List<string>, bool> saveExecutables,
-        Action changed, DailyLog log)
+        Action changed, DailyLog log, string configurationDirectory, Func<Task> reloadConfiguration)
     {
         this.service = service;
         this.executables = executables;
         this.saveExecutables = saveExecutables;
         this.changed = changed;
         this.log = log;
+        this.reloadConfiguration = reloadConfiguration;
         Text = "Cadence の設定";
         ClientSize = new Size(690, 690);
         MinimumSize = new Size(600, 500);
@@ -38,8 +43,26 @@ internal sealed class SettingsForm : Form
         var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
             WrapContents = false, AutoScroll = true, Padding = new Padding(16) };
         Controls.Add(layout);
-        layout.Controls.AddRange([status, sync, account, email, password, Row(signIn, signOut), error,
+        var guidance = new Label { AutoSize = true, MaximumSize = new Size(640, 0), Text =
+            "Cadence はタスクバー右の通知領域（「^」の中）に常駐します。この画面を閉じても動き続けます。"
+            + "開き直すにはアイコンをダブルクリックするか、右クリック →「設定...」を選びます。" };
+        var openFolder = new Button { Text = "設定フォルダを開く", AutoSize = true };
+        layout.Controls.AddRange([guidance, status, connection, Row(openFolder, reload), sync, account, email, password, Row(signIn, signOut), error,
             new Label { Text = "この PC でブロックするアプリ", AutoSize = true }, list]);
+        openFolder.Click += (_, _) =>
+        {
+            try
+            {
+                Directory.CreateDirectory(configurationDirectory);
+                Process.Start(new ProcessStartInfo { FileName = configurationDirectory, UseShellExecute = true });
+            }
+            catch
+            {
+                error.Text = "設定フォルダを開けません。フォルダの権限などを確認してください。";
+                log.Write("config_folder_open_failed");
+            }
+        };
+        reload.Click += async (_, _) => await ReloadConfigurationAsync();
         var add = new Button { Text = "追加", AutoSize = true };
         var remove = new Button { Text = "削除", AutoSize = true };
         var running = new Button { Text = "実行中のアプリから追加...", AutoSize = true };
@@ -74,14 +97,31 @@ internal sealed class SettingsForm : Form
         };
     }
 
-    public void RefreshStatus(string text, SyncService syncService)
+    public void RefreshStatus(string text, SyncService syncService, FirebaseConfigLoadResult configuration)
     {
         if (IsDisposed) return;
         status.Text = text;
+        connection.Text = configuration.Message;
         sync.Text = "最終同期: " + (syncService.State.LastSync is { } at ? ScheduleStatus.JapanTime(at) : "未取得");
         account.Text = syncService.Email is { } signedIn ? "サインイン中: " + signedIn : "サインインしていません";
         signIn.Enabled = !busy && syncService.Configured;
         signOut.Enabled = !busy && syncService.Email is not null;
+        reload.Enabled = !busy;
+    }
+
+    private async Task ReloadConfigurationAsync()
+    {
+        if (busy) return;
+        busy = true;
+        changed();
+        error.Text = "";
+        try { await reloadConfiguration(); }
+        catch
+        {
+            if (!IsDisposed) error.Text = "接続設定を読み直せません。もう一度お試しください。";
+            log.Write("config_reload_failed");
+        }
+        finally { busy = false; if (!IsDisposed) changed(); }
     }
 
     private async Task AuthenticateAsync(bool signingIn)

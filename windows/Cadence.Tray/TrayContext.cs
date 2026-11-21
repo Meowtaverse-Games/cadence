@@ -9,6 +9,9 @@ internal sealed class TrayContext : ApplicationContext
     private readonly LocalFiles files;
     private readonly DailyLog log;
     private readonly SyncService service;
+    private FirebaseConfigLoadResult configuration;
+    private readonly string directlyUnderAppDataPath;
+    private readonly bool openSettingsOnStartup;
     private readonly ProcessMonitor monitor;
     private readonly List<string> executables;
     private readonly NotifyIcon tray;
@@ -32,9 +35,13 @@ internal sealed class TrayContext : ApplicationContext
         log = new(files.PathFor("logs"), clock);
         log.Write("started");
         executables = files.LoadExecutables().ToList();
-        var config = FirebaseConfig.Load(files.PathFor("cadence-firebase.json"));
-        service = new(config is null ? null : new FirebaseClient(config, clock, new HttpClientHandler()),
+        directlyUnderAppDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "AppData", "Cadence", "cadence-firebase.json");
+        configuration = FirebaseConfig.Load(files.PathFor("cadence-firebase.json"), directlyUnderAppDataPath);
+        log.Write(configuration.Code);
+        service = new(configuration.Config is { } config ? new FirebaseClient(config, clock, new HttpClientHandler()) : null,
             new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write);
+        openSettingsOnStartup = StartupSettings.ShouldOpen(configuration.Usable, service.HasSavedSession);
         var menu = new ContextMenuStrip();
         menu.Items.Add(stateMenu);
         menu.Items.Add("設定...", null, (_, _) => OpenSettings());
@@ -61,6 +68,21 @@ internal sealed class TrayContext : ApplicationContext
         UpdateDisplay();
         blockTimer.Start();
         syncTimer.Start();
+        Application.Idle += OnFirstIdle;
+    }
+
+    private void OnFirstIdle(object? sender, EventArgs e)
+    {
+        // Run only after construction and inside the first message loop.
+        Application.Idle -= OnFirstIdle;
+        if (!exiting && openSettingsOnStartup) OpenSettings();
+    }
+
+    private async Task ReloadConfigurationAsync()
+    {
+        configuration = await service.ReloadConfigurationAsync(files.PathFor("cadence-firebase.json"),
+            directlyUnderAppDataPath, cancellation: shutdown.Token);
+        if (!exiting) UpdateDisplay();
     }
 
     private async Task SynchronizeAsync()
@@ -86,7 +108,8 @@ internal sealed class TrayContext : ApplicationContext
     {
         var block = ScheduleStatus.Evaluate(service.State.Timetable, clock);
         var current = service.State.Timetable is null ? "時間割なし" : block.Blocked ? "ブロック中" : "自由時間";
-        var problem = service.AuthProblem ?? service.State.Problem ?? service.StorageProblem;
+        var problem = !configuration.Usable ? configuration.Message
+            : service.AuthProblem ?? service.State.Problem ?? service.StorageProblem;
         return problem is null ? current : current + " / " + problem;
     }
 
@@ -98,7 +121,7 @@ internal sealed class TrayContext : ApplicationContext
             ? problemIcon : block.Blocked ? blockedIcon : freeIcon;
         tray.Text = ScheduleStatus.Tooltip(state, block, service.State.LastSync, clock);
         stateMenu.Text = state;
-        settings?.RefreshStatus(state, service);
+        settings?.RefreshStatus(state, service, configuration);
         if (service.TakeAuthNotification()) Notify("サインインが必要です", "設定画面でサインインしてください。保存済みの時間割でブロックを続けます。", true);
     }
 
@@ -106,7 +129,8 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (settings is null || settings.IsDisposed)
         {
-            settings = new SettingsForm(service, executables, SaveExecutables, UpdateDisplay, log);
+            settings = new SettingsForm(service, executables, SaveExecutables, UpdateDisplay, log,
+                Path.GetDirectoryName(configuration.Path)!, ReloadConfigurationAsync);
             settings.FormClosed += (_, _) => settings = null;
         }
         UpdateDisplay();
@@ -134,6 +158,7 @@ internal sealed class TrayContext : ApplicationContext
     protected override void ExitThreadCore()
     {
         exiting = true;
+        Application.Idle -= OnFirstIdle;
         shutdown.Cancel();
         blockTimer.Stop();
         syncTimer.Stop();
@@ -146,6 +171,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (disposing)
         {
+            Application.Idle -= OnFirstIdle;
             blockTimer.Dispose();
             syncTimer.Dispose();
             tray.ContextMenuStrip?.Dispose();

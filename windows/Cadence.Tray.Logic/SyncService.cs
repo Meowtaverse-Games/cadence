@@ -48,7 +48,7 @@ public sealed class SyncState
 // All mutations are serialized, including sign-out vs an in-flight refresh/fetch.
 public sealed class SyncService : IDisposable
 {
-    private readonly FirebaseClient? client;
+    private FirebaseClient? client;
     private readonly ISessionStore sessions;
     private readonly Action<TimetableCache> saveCache;
     private readonly Action<string> log;
@@ -60,6 +60,7 @@ public sealed class SyncService : IDisposable
     private bool authNotificationPending;
     public SyncState State { get; }
     public bool Configured => client is not null;
+    public bool HasSavedSession => saved is not null;
     public string? Email => saved?.Email;
     private bool sessionStorageFailed;
     private bool cacheStorageFailed;
@@ -85,6 +86,28 @@ public sealed class SyncService : IDisposable
         var pending = authNotificationPending;
         authNotificationPending = false;
         return pending;
+    }
+
+    public async Task<FirebaseConfigLoadResult> ReloadConfigurationAsync(string path, string? directlyUnderAppDataPath,
+        Func<FirebaseConfig, FirebaseClient>? createClient = null, CancellationToken cancellation = default)
+    {
+        await gate.WaitAsync(cancellation);
+        try
+        {
+            var result = FirebaseConfig.Load(path, directlyUnderAppDataPath);
+            var replacement = result.Config is { } config
+                ? (createClient is null ? new FirebaseClient(config, clock, new HttpClientHandler()) : createClient(config))
+                : null;
+            var previous = client;
+            client = replacement;
+            // A token from the previous connection must not be sent to a changed project.
+            // Keep the saved refresh token and timetable; normal auth handling still applies.
+            token = null;
+            previous?.Dispose();
+            log(result.Code);
+            return result;
+        }
+        finally { gate.Release(); }
     }
 
     public async Task<string?> SignInAsync(string email, string password, CancellationToken cancellation = default)

@@ -28,6 +28,7 @@ internal sealed class FakeHttp : HttpMessageHandler
 {
     public Queue<Func<HttpRequestMessage, Task<HttpResponseMessage>>> Replies { get; } = new();
     public int Calls { get; private set; }
+    public bool Disposed { get; private set; }
     public List<(string Host, string Path, string? Bearer)> Requests { get; } = new();
     public void Enqueue(HttpStatusCode status, string body) => Replies.Enqueue(_ => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) }));
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -35,6 +36,11 @@ internal sealed class FakeHttp : HttpMessageHandler
         Calls++;
         Requests.Add((request.RequestUri!.Host, request.RequestUri.AbsolutePath, request.Headers.Authorization?.Parameter));
         return Replies.Dequeue()(request);
+    }
+    protected override void Dispose(bool disposing)
+    {
+        Disposed = true;
+        base.Dispose(disposing);
     }
 }
 

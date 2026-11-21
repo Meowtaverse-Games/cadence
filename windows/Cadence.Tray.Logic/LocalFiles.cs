@@ -3,25 +3,6 @@ using Cadence.Core;
 
 namespace Cadence.Tray.Logic;
 
-public sealed record FirebaseConfig(string ApiKey, string ProjectId)
-{
-    public static FirebaseConfig? Load(string path)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            var key = doc.RootElement.GetProperty("apiKey").GetString();
-            var project = doc.RootElement.GetProperty("projectId").GetString();
-            return string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(project)
-                ? null : new FirebaseConfig(key, project);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or KeyNotFoundException or ArgumentException)
-        {
-            return null;
-        }
-    }
-}
-
 public static class AtomicFile
 {
     public static void Write(string path, byte[] bytes)

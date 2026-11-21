@@ -117,9 +117,9 @@ public sealed class PolicyTests
     public void InvalidConfigurationNeverEscapes(string json)
     {
         var path = Path.GetTempFileName();
-        try { File.WriteAllText(path, json); Assert.Null(FirebaseConfig.Load(path)); }
+        try { File.WriteAllText(path, json); Assert.False(FirebaseConfig.Load(path).Usable); }
         finally { File.Delete(path); }
-        Assert.Null(FirebaseConfig.Load(path));
+        Assert.Equal(FirebaseConfigStatus.Missing, FirebaseConfig.Load(path).Status);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public sealed class PolicyTests
         try
         {
             AtomicFile.WriteJson(files.PathFor("config.json"), new { apiKey = "synthetic", projectId = "synthetic-project" });
-            Assert.Equal(new FirebaseConfig("synthetic", "synthetic-project"), FirebaseConfig.Load(files.PathFor("config.json")));
+            Assert.Equal(new FirebaseConfig("synthetic", "synthetic-project"), FirebaseConfig.Load(files.PathFor("config.json")).Config);
             var cache = new TimetableCache(Samples.Empty, new FakeClock().Now);
             files.SaveCache(cache);
             Assert.Equal(cache, files.LoadCache());
