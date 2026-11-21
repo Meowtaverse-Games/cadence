@@ -1,0 +1,37 @@
+name: Firebase
+
+on:
+  push:
+    paths:
+      - 'firebase/**'
+      - '.github/workflows/firebase.yml'
+  pull_request:
+    paths:
+      - 'firebase/**'
+      - '.github/workflows/firebase.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rules:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: firebase
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.22.3'
+          cache: npm
+          cache-dependency-path: firebase/package-lock.json
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21.0.13'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Test Firestore rules in the emulator
+        run: npm test

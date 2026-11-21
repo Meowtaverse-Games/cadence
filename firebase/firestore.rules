@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/config/timetable {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      function isValidTimetable() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['schemaVersion', 'timeZone', 'patterns', 'updatedAt'])
+          && data.schemaVersion == 1
+          && data.timeZone == 'Asia/Tokyo'
+          && data.patterns is list
+          && data.patterns.size() <= 20
+          && data.updatedAt == request.time;
+      }
+
+      allow get: if isOwner();
+      allow create, update: if isOwner() && isValidTimetable();
+      allow delete, list: if false;
+    }
+    // Unmatched paths are denied by default.
+  }
+}
