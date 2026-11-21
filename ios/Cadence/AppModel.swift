@@ -28,7 +28,11 @@ final class AppModel: ObservableObject {
     func updateStatus() {
         authorization = AuthorizationCenter.shared.authorizationStatus
         let timetable = files.timetable()?.1
-        blocked = authorization == .approved && files.selection() != nil && ActivityPlanner.isBlocked(timetable, at: Date())
+        let saved = files.selection()
+        let hasSelection = saved.map {
+            !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty || !$0.webDomainTokens.isEmpty
+        } ?? false
+        blocked = authorization == .approved && hasSelection && ActivityPlanner.isBlocked(timetable, at: Date())
         next = timetable.flatMap { try? ActivityPlanner.nextTransition($0, now: Date()) }
         activityCount = DeviceActivityCenter().activities.count
         registrationErrors = files.registrationErrors()

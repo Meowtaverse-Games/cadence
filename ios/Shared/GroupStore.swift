@@ -4,6 +4,11 @@ import CadenceCore
 import os
 import Darwin
 
+struct ActivityRecord: Codable {
+    let start: Date
+    let end: Date
+}
+
 /// Atomic replacement protects readers; separate flock files serialize cross-process writers.
 struct GroupStore {
     static let group = "group.com.meowtaverse-games.cadence"
@@ -63,6 +68,16 @@ struct GroupStore {
     func selection() -> FamilyActivitySelection? { read("selection.json", as: FamilyActivitySelection.self) }
     func save(_ selection: FamilyActivitySelection) throws {
         try locked("runtime") { try write(selection, file: "selection.json") }
+    }
+
+    // Diagnostic history only, never used as the source of scheduling or shield decisions.
+    func activityHistory() -> [String: ActivityRecord] {
+        read("activity-history.json", as: [String: ActivityRecord].self) ?? [:]
+    }
+
+    func saveHistory(_ history: [String: ActivityRecord]) throws {
+        let recent = history.sorted { $0.value.start > $1.value.start }.prefix(100)
+        try write(Dictionary(uniqueKeysWithValues: recent.map { ($0.key, $0.value) }), file: "activity-history.json")
     }
 
     func registrationErrors() -> [String] { read("registration-errors.json", as: [String].self) ?? [] }

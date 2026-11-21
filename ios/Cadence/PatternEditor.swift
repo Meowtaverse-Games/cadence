@@ -5,6 +5,13 @@ struct PatternEditor: View {
     @State var pattern: LocalPattern
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
+    @State private var minuteInputs: [String]
+
+    init(model: AppModel, pattern: LocalPattern) {
+        self.model = model
+        _pattern = State(initialValue: pattern)
+        _minuteInputs = State(initialValue: pattern.segments.map { String($0.minutes) })
+    }
 
     var body: some View {
         NavigationStack {
@@ -37,14 +44,14 @@ struct PatternEditor: View {
                                 Text("ブロック").tag("block")
                                 Text("自由").tag("free")
                             }
-                            TextField("分", value: $pattern.segments[index].minutes, format: .number)
+                            TextField("分", text: $minuteInputs[index])
                                 .keyboardType(.numberPad).frame(width: 70)
                             Text("分")
                         }
                     }
-                    .onDelete { pattern.segments.remove(atOffsets: $0) }
-                    .onMove { pattern.segments.move(fromOffsets: $0, toOffset: $1) }
-                    Button("セグメントを追加") { pattern.segments.append(LocalSegment(kind: "block", minutes: 15)) }
+                    .onDelete { pattern.segments.remove(atOffsets: $0); minuteInputs.remove(atOffsets: $0) }
+                    .onMove { pattern.segments.move(fromOffsets: $0, toOffset: $1); minuteInputs.move(fromOffsets: $0, toOffset: $1) }
+                    Button("セグメントを追加") { pattern.segments.append(LocalSegment(kind: "block", minutes: 15)); minuteInputs.append("15") }
                         .disabled(pattern.segments.count >= 20)
                 }
                 if let error { Text(error).foregroundStyle(.red) }
@@ -62,6 +69,13 @@ struct PatternEditor: View {
                 ToolbarItem(placement: .primaryAction) { EditButton() }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
+                        for index in pattern.segments.indices {
+                            guard let minutes = Int(minuteInputs[index]) else {
+                                error = ValidationFailure(code: "segment_minutes").errorDescription
+                                return
+                            }
+                            pattern.segments[index].minutes = minutes
+                        }
                         var candidate = model.document
                         if let index = candidate.patterns.firstIndex(where: { $0.id == pattern.id }) {
                             candidate.patterns[index] = pattern
@@ -75,5 +89,6 @@ struct PatternEditor: View {
 
     private func template(_ first: String, _ firstMinutes: Int, _ second: String, _ secondMinutes: Int) {
         pattern.segments = [LocalSegment(kind: first, minutes: firstMinutes), LocalSegment(kind: second, minutes: secondMinutes)]
+        minuteInputs = [String(firstMinutes), String(secondMinutes)]
     }
 }

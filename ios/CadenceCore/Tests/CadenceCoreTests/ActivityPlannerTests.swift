@@ -48,8 +48,7 @@ final class ActivityPlannerTests: XCTestCase {
     }
 
     func testNextTransitionBeyondSevenDays() throws {
-        // Eight consecutive full-day windows, then a gap (weekly repetition gives a run > 7 days
-        // only when queried before its start; the end below is seven days after the query).
+        // Search the entire planning horizon, including runs across multiple daily windows.
         var item = pattern(start: "19:00", end: "19:00")
         item["weekdays"] = [1, 2, 3, 4, 5, 6]
         let timetable = try validTimetable(document(patterns: [item]))
@@ -59,6 +58,8 @@ final class ActivityPlannerTests: XCTestCase {
         let weeklyTable = try validTimetable(document(patterns: [weekly]))
         XCTAssertEqual(try ActivityPlanner.nextTransition(weeklyTable, now: monday.addingTimeInterval(3600)),
                        monday.addingTimeInterval(7 * 86400))
+        let distantPlan = try ActivityPlanner.plan(weeklyTable, now: monday.addingTimeInterval(3600))
+        XCTAssertEqual(distantPlan.last?.interval.start, monday.addingTimeInterval(14 * 86400))
         let continuous = try validTimetable(document(patterns: [pattern(start: "19:00", end: "19:00")]))
         XCTAssertNil(try ActivityPlanner.nextTransition(continuous, now: monday))
     }

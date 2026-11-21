@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 ScreenTimeCoordinator(category: "app").refresh(event: "BGタスク", reset: true)
             }
             task.expirationHandler = { operation.cancel() }
-            operation.completionBlock = { task.setTaskCompleted(success: !operation.isCancelled) }
+            operation.completionBlock = { [weak operation] in task.setTaskCompleted(success: operation?.isCancelled == false) }
             self.queue.addOperation(operation)
         }
         Self.scheduleRefresh()

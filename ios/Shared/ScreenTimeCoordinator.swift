@@ -29,7 +29,10 @@ struct ScreenTimeCoordinator {
                 let start = activity.flatMap { ActivityPlanner.start(for: $0.rawValue) }
                 let evaluation = ActivityPlanner.evaluationTime(now: received, intervalDidStart: didStart, activityStart: start)
                 let authorized = AuthorizationCenter.shared.authorizationStatus == .approved
-                let blocked = authorized && selection != nil && ActivityPlanner.isBlocked(timetable, at: evaluation)
+                let hasSelection = selection.map {
+                    !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty || !$0.webDomainTokens.isEmpty
+                } ?? false
+                let blocked = authorized && hasSelection && ActivityPlanner.isBlocked(timetable, at: evaluation)
                 // Always apply the desired state, even if monitoring fails or a callback repeats.
                 let applications = blocked ? selection?.applicationTokens : nil
                 let domains = blocked ? selection?.webDomainTokens : nil
@@ -41,21 +44,24 @@ struct ScreenTimeCoordinator {
                 settings.shield.applicationCategories = categories
                 settings.shield.webDomains = domains
 
-                var end: Date?
-                if let timetable, let start {
-                    end = try TimetableExpander.expand(timetable, from: start, to: start.addingTimeInterval(1))
-                        .first(where: { $0.start == start })?.end
+                var history = files.activityHistory()
+                var eventInterval = activity.flatMap { history[$0.rawValue] }
+                if activity?.rawValue == ActivityPlanner.watchdogName {
+                    let midnight = Calendar.current.startOfDay(for: received)
+                    let end = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: received)!
+                    eventInterval = ActivityRecord(start: midnight, end: end)
                 }
-                let scheduled = activity.flatMap { center.schedule(for: $0) }
-                let scheduleText = start.map(GroupStore.timestamp) ?? scheduled.map { String(describing: $0.intervalStart) } ?? "none"
-                let endText = end.map(GroupStore.timestamp) ?? scheduled.map { String(describing: $0.intervalEnd) } ?? "none"
+                let scheduleText = eventInterval.map { GroupStore.timestamp($0.start) } ?? start.map(GroupStore.timestamp) ?? "none"
+                let endText = eventInterval.map { GroupStore.timestamp($0.end) } ?? "none"
                 files.record("event=\(event) activity=\(activity?.rawValue ?? "none") scheduledStart=\(scheduleText) scheduledEnd=\(endText) received=\(GroupStore.timestamp(received)) evaluation=\(GroupStore.timestamp(evaluation)) decision=\(unchanged ? "変えない" : blocked ? "かけた" : "外した") blocked=\(blocked) authorized=\(authorized) selectionCounts=\(selection?.applicationTokens.count ?? 0)/\(selection?.categoryTokens.count ?? 0)/\(selection?.webDomainTokens.count ?? 0)")
 
-                if reset { center.stopMonitoring() }
                 var errors: [String] = []
                 let plan = try timetable.map { try ActivityPlanner.plan($0, now: evaluation) } ?? []
-                let canMonitor = authorized && timetable != nil && selection != nil
+                let canMonitor = authorized && timetable != nil && hasSelection
                 let desired = canMonitor ? Set(plan.map { DeviceActivityName($0.name) } + [DeviceActivityName(ActivityPlanner.watchdogName)]) : []
+                for item in plan { history[item.name] = ActivityRecord(start: item.interval.start, end: item.interval.end) }
+                try files.saveHistory(history)
+                if reset { center.stopMonitoring() }
                 let obsolete = center.activities.filter { !desired.contains($0) }
                 if !obsolete.isEmpty { center.stopMonitoring(obsolete) }
 
@@ -82,6 +88,11 @@ struct ScreenTimeCoordinator {
                 let names = center.activities.map(\.rawValue).sorted()
                 files.record("registered count=\(names.count) names=\(names.joined(separator: ",")) plan=\(plan.map { "\($0.name)[\(GroupStore.timestamp($0.interval.start)),\(GroupStore.timestamp($0.interval.end)))" }.joined(separator: ","))")
             }
-        } catch { files.record("refreshFailure event=\(event) reason=\(GroupStore.reason(error))") }
+        } catch {
+            let reason = "更新失敗: \(GroupStore.reason(error))"
+            files.record("refreshFailure event=\(event) reason=\(GroupStore.reason(error))")
+            do { try files.locked("runtime") { try files.saveErrors([reason]) } }
+            catch { files.record("statusWriteFailure reason=\(GroupStore.reason(error))") }
+        }
     }
 }
