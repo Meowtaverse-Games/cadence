@@ -25,4 +25,3 @@ public sealed class DailyLog(string directory, TimeProvider clock)
         }
     }
 }
-
