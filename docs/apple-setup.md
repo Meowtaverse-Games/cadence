@@ -1,0 +1,167 @@
+# Apple 開発用署名と実機確認（PR 4a）
+
+この手順は Apple Developer Program の有効な登録と、iPhone を接続できる Mac を前提とする。
+Codemagic がビルドするため、Mac でソースをビルドする必要はない。
+値を控える場合は非公開の保管先を使う。公開の Issue / PR に Team ID、Key ID、Issuer ID、UDID、
+メールアドレス、秘密鍵、profile、実際の時間割や記録を貼らない。以下の `<...>` は置き換え欄。
+
+## 1. App ID と App Group
+
+[Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で、
+Identifiers → ＋ → App Groups を選び `group.com.meowtaverse-games.cadence` を登録する。
+続いて App IDs → App の Explicit Bundle ID として次の3つを登録する。
+
+| ターゲット | Bundle ID |
+|---|---|
+| Cadence | `com.meowtaverse-games.cadence` |
+| DeviceActivityMonitor | `com.meowtaverse-games.cadence.DeviceActivityMonitor` |
+| ShieldConfiguration | `com.meowtaverse-games.cadence.ShieldConfiguration` |
+
+それぞれ Family Controls（開発用）と App Groups を有効にし、Configure で同じ App Group を関連付ける。
+確認: 3つすべての Identifier の詳細で、両 capability と Group の選択が保存されていること。
+配布用の申請は手順11で別に扱う。
+
+## 2. 実機の登録
+
+iPhone を Mac にケーブル接続し、ロックを解除して「このコンピュータを信頼」を許可する。
+Finder のサイドバーで iPhone を選び、端末情報のシリアル番号表示をクリックして UDID を表示・コピーする。
+または Xcode → Window → Devices and Simulators → Devices で Identifier をコピーする。
+Developer の Devices → ＋ で iOS を選び、端末名 `<DEVICE_LABEL>` と `<DEVICE_UDID>` を登録する。
+確認: Devices で有効になっていること。UDID はこの文書や Git に書き戻さない。
+[Apple の端末登録手順](https://developer.apple.com/help/account/devices/register-a-single-device/)
+
+## 3. デベロッパモード
+
+iPhone の「設定 → プライバシーとセキュリティ → デベロッパモード」をオンにし、再起動後の確認で許可する。
+項目が出ない場合は Xcode の Devices and Simulators でペアリングしてから確認する。
+確認: 再起動後もオンで、Xcode に開発利用不可の警告が出ないこと。
+[Apple の説明](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device)
+
+## 4. App Store Connect API キー
+
+Account Holder が API アクセスを有効化し、Users and Access → Integrations → App Store Connect API の
+Team Keys で専用キーを作る。Codemagic の案内に沿って App Manager を選び、Certificates, Identifiers & Profiles
+へアクセスできることを確認する。個人キーではなく Issuer ID を持つチームキーを使用する。
+`.p8` は一度しかダウンロードできないため、安全な非公開の保管先に保存する。
+確認: キーが有効で `<KEY_ID>` と `<ISSUER_ID>` を控えたこと。権限不足なら管理者がアクセス設定を確認する。
+[Codemagic の CLI 署名手順](https://docs.codemagic.io/yaml-code-signing/alternative-code-signing-methods/)
+
+## 5. 証明書の秘密鍵
+
+Mac のターミナルで、リポジトリ外の安全な保存先を指定して実行する。
+Codemagic の例と同じ RSA 2048 bit / PEM 形式を使う（API キー `.p8` とは別物）。
+
+```sh
+ssh-keygen -t rsa -b 2048 -m PEM -f '<PRIVATE_DIRECTORY>/cadence_development_key' -q -N ''
+```
+
+確認: 秘密鍵が PEM 形式で保存されていること。`.pub` ではなく秘密鍵の全文を手順6に使用する。
+同じ秘密鍵を継続利用し、ビルドのたびに証明書を増やさない。
+証明書の種類はファイル名ではなく `IOS_APP_DEVELOPMENT` で指定する。
+
+## 6. Codemagic の登録
+
+Codemagic に GitHub のリポジトリを追加して `codemagic.yaml` を選ぶ。
+Environment variables にグループ `cadence_apple` を作り、次の4つをすべて Secret にする。
+
+| 変数 | 値 |
+|---|---|
+| `APP_STORE_CONNECT_ISSUER_ID` | `<ISSUER_ID>` |
+| `APP_STORE_CONNECT_KEY_IDENTIFIER` | `<KEY_ID>` |
+| `APP_STORE_CONNECT_PRIVATE_KEY` | `.p8` のヘッダー・フッターと改行を含む全文 |
+| `CERTIFICATE_PRIVATE_KEY` | 手順5の秘密鍵のヘッダー・フッターと改行を含む全文 |
+
+確認: 4変数が Secret で同じグループに入り、ワークフローから参照されること。
+キーをログに出す `echo` や `set -x` は追加しない。
+
+## 7. 手動ビルド
+
+Start new build で対象ブランチと `ios-development` を選ぶ。push トリガーと TestFlight への publishing は無い。
+Xcode 16.4、SHA-256 照合付き XcodeGen 2.44.1、プロジェクト生成、署名、archive/export の順に走る。
+
+確認: 各 Bundle ID について profile が取得され、3ターゲットに適用されること。
+`--strict-match-identifier` によって、本体の検索に extension の ID が混ざるのを防ぐ。
+`--create` は不足時だけ作成する。鍵は環境変数から CLI が読む。
+成功後、Artifacts の `.ipa` とビルドログをダウンロードする。
+実際の署名・export はこの手順で初めて確認する。YAML の構文検証だけでは成功を保証しない。
+
+署名内容は Mac で IPA を展開し、アプリと `PlugIns/*.appex` のそれぞれに対して確認できる。
+
+```sh
+unzip '<IPA_PATH>' -d '<PRIVATE_INSPECTION_DIRECTORY>'
+codesign -d --entitlements :- '<APP_OR_APPEX_PATH>'
+security cms -D -i '<APP_OR_APPEX_PATH>/embedded.mobileprovision'
+```
+
+確認: 3つとも Family Controls と App Group が一致し、profile が開発用で、対象 UDID と有効期限を含むこと。
+これらの出力にはアカウント情報があるため公開しない。
+
+コマンドの根拠:
+[fetch-signing-files](https://github.com/codemagic-ci-cd/cli-tools/blob/master/docs/app-store-connect/fetch-signing-files.md)、
+[use-profiles](https://github.com/codemagic-ci-cd/cli-tools/blob/master/docs/xcode-project/use-profiles.md)、
+[build-ipa](https://github.com/codemagic-ci-cd/cli-tools/blob/master/docs/xcode-project/build-ipa.md)。
+`use-profiles --archive-method development` が署名と export 設定を作り、`build-ipa --archive-flags`
+で `-onlyUsePackageVersionsFromResolvedFile` を渡す。Team ID は profile からビルド時に設定される。
+
+## 8. iPhone にインストール
+
+接続した iPhone を Xcode → Window → Devices and Simulators で選び、Installed Apps の ＋ から `.ipa` を選ぶ。
+または Apple Configurator で接続端末に `.ipa` を追加する。
+確認: Cadence が起動すること。インストールできなければ手順2・3・7の UDID、開発モード、署名の一致を確認する。
+
+## 9. 記録を見る
+
+iPhone だけなら Cadence → 記録 → 更新で新しい順に確認し、テキストとして共有できる。最新500件を保持する。
+Mac なら「コンソール」を開き、接続した iPhone を選んでストリーミングを開始し、
+subsystem `com.meowtaverse-games.cadence` で絞る。category は `app` / `monitor` / `shield`。
+確認: 再登録ボタンで両方に同じイベントが出ること。
+
+主なフィールドは `event`、`activity`、`scheduledStart/End`、`received`、`evaluation`、
+`decision`（かけた・外した・変えない）、`blocked`、`registered count/names`、`plan`、`timezone`。
+`startMonitoringFailure` には失敗した activity とエラーの domain/code が出る。
+時刻はオフセット付き ISO 8601。`selectionCounts` はアプリ/カテゴリ/Web の件数のみ。
+記録には動作時刻があるため、共有は非公開の保管先に限る。結果を公開するなら合成データでの要約だけにする。
+
+## 10. 証明書・profile の更新
+
+年1回の更新を予定に入れ、実際の証明書/profile の有効期限を手順7で確認して期限前に更新する。
+新しい証明書が必要なら手順5〜7を行い、3つの開発 profile に新しい証明書を関連付けて再生成する。
+端末追加時も、Devices への登録だけでは既存 profile に反映されないため、Developer の Profiles で
+3つすべての対象開発 profile を編集し、新端末を含めて再生成する。その後 Codemagic を手動実行する。
+確認: ダウンロードした IPA 内の3つの profile の有効期限・証明書・UDID を再確認し、新端末で起動すること。
+`--create` は既存の有効な profile を常に再生成するオプションではない。古い profile が選ばれる場合は、
+管理者が対象を確認して古い開発 profile のみ整理する。ほかのアプリの証明書は失効させない。
+
+## 11. TestFlight の前に必要なこと（PR 5）
+
+Account Holder が3つすべての Bundle ID について Family Controls の配布用 entitlement を申請する。
+承認後は配布用 profile を作り直し、3ターゲットの entitlement を確認する。
+確認: Capability Requests で各 ID が承認済みになっていること。
+[Apple の申請説明](https://developer.apple.com/documentation/familycontrols/requesting-the-family-controls-entitlement)
+この開発用ワークフローは App Store Connect へアップロードしない。
+
+## 実機確認表
+
+すべて合成の時間割・テスト用の対象アプリで実施する。時刻入力は日本時間、shield の表示時刻は端末時間。
+各ケース前に不要なパターンを無効化する。ブロック15分・自由0分は無効なので使用しない。
+以下の結果欄は未確認のまま開始し、確認端末の OS 版・合成ケース・観測結果は非公開で保存する。
+仕様の修正が必要になった場合は別作業とする。
+
+| ID | 操作 | 記録と判定 | 結果 |
+|---|---|---|---|
+| D1 権限・picker | 初回は許可を拒否し、後で設定から許可。アプリ/カテゴリ/Web を選択して保存 | 拒否中は監視0件。許可後は件数が一致し、ブロック中に対象を開くと「集中の時間です」と解除時刻が表示される | 未確認 |
+| D2 編集・保持 | テンプレート3種類を保存。名前/曜日/時刻/セグメントを編集、無効化、削除。重複窓、14分ブロック、空曜日で保存 | 日本語理由コードを表示し、再起動しても直前の有効な時間割が残る。全削除で shield が外れる | 未確認 |
+| D3 15分・24時間 | 未来の15分窓にブロック15分。別ケースで開始=終了、ブロック720分のみ | `plan` の長さが15分/24時間、登録失敗がないこと、開始と終了で shield が切り替わる | 未確認 |
+| D4 同時監視数 | 長い窓にブロック15分/自由1分を繰り返す | `registered count=8`（区間7＋見張り1）。終了後に古い名前が消えて次が補充される。失敗なら domain/code を控える。本アプリが使う8件までを確認し、OSの絶対上限の探索は別の実験とする | 未確認 |
+| D5 開始が過去 | 現在が中に入る窓を保存 | 本体の `blocked=true` で直ちに shield。続く monitor の `intervalDidStart` が即時に届くか、予定開始と受信時刻を比較 | 未確認 |
+| D6 stopMonitoring | ブロック中に再登録を押す | `intervalDidEnd` が呼ばれるか記録する。呼ばれても `evaluation` がブロック内なら `blocked=true` で外れたままにならない | 未確認 |
+| D7 接する境目 | 例: 19:00〜19:15 と19:15〜19:30を別パターンで作り、両方ブロック15分。対象を開いたまま境目を待つ | 前の終了/次の開始の両イベントで `blocked=true`。解除表示は19:30（端末時間に換算）、境目に自由にならない。同じ窓の連続ブロックは結合されるため、このケースに使わない | 未確認 |
+| D8 早い開始通知 | 未来の区間を登録しアプリを閉じて待つ | `received < scheduledStart` の有無。早い場合 `evaluation=scheduledStart` となり shield がかかる。遅い場合は受信時刻を使用 | 未確認 |
+| D9 電源断・再起動 | D4の登録一覧を非公開に控え、登録済み7件がすべて終了するまで電源オフ。再起動し一度ロック解除、Cadenceを開かず見張りの次の境界と次のブロックを待つ。再起動だけのケースも実施 | 対象アプリで shield を確認してから Cadence の記録を見る。`見張り/intervalDidStart` または End、`BGタスク`、補充一覧を確認。本体の前面イベントによる回復と混同しない。BG実行時刻はOS任せ | 未確認 |
+| D10 タイムゾーン | 未来の日本時間の区間を登録。端末の自動タイムゾーンを切り、別ゾーンへ変更。Cadenceを前面に戻すケースと、開かず待つケースを別々に行う | 前者はタイムゾーン変更/前面イベントと再登録、後者は monitor の時刻を確認。同じ絶対時刻でブロックされるか、shield の表示が端末時間か確認。後で自動設定に戻す | 未確認 |
+| D11 明示的timeZone | 通常ビルドのD10を先に確認。比較用ビルドで `ScreenTimeCoordinator.useExplicitTokyoTimeZone` のみ true にして、CodemagicでビルドしD10を再実施 | 日本時間の components + timeZone をOSが尊重するか比較。結果だけ保存し、仕様/既定値の変更は別作業 | 未確認 |
+| D12 記録・障害 | 記録を共有して件数とフィールドを確認し、消去して更新。OSが監視登録を拒否したケースがあれば再登録 | 新しい順、最大500件、トークン/対象名なし。失敗理由が画面と記録にあり、登録失敗でも本体の shield 判定が続く | 未確認 |
+
+端末のタイムゾーン変更を本体が動いていない間に OS がどう扱うか、開始前通知、過去開始区間、
+再起動後の連鎖、監視上限はシミュレーター CI では判定できない。
+再起動後の初回ロック解除前は App Group のファイル保護により読み出せない場合がある。

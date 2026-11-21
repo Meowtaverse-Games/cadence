@@ -1,0 +1,42 @@
+workflows:
+  ios-development:
+    name: iOS 開発用署名（実機確認）
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    # No triggering or publishing: start manually; do not upload to TestFlight.
+    environment:
+      xcode: '16.4'
+      groups:
+        - cadence_apple
+      vars:
+        XCODEGEN_SHA256: a2e905fb68446e9bb4008cdfe2e13e3f176d0cbcca828b71770f8e53fca91b73
+    scripts:
+      - name: Install verified XcodeGen 2.44.1
+        script: |
+          set -euo pipefail
+          mkdir -p "$CM_BUILD_DIR/.ci-tools"
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.zip -o "$CM_BUILD_DIR/.ci-tools/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $CM_BUILD_DIR/.ci-tools/xcodegen.zip" | shasum --algorithm 256 --check
+          unzip -q "$CM_BUILD_DIR/.ci-tools/xcodegen.zip" -d "$CM_BUILD_DIR/.ci-tools"
+          export PATH="$CM_BUILD_DIR/.ci-tools/xcodegen/bin:$PATH"
+          xcodebuild -version
+          xcodegen --version
+          ios/scripts/generate-project.sh
+      - name: Fetch development profiles for all three identifiers
+        script: |
+          set -euo pipefail
+          keychain initialize
+          for bundle_id in com.meowtaverse-games.cadence com.meowtaverse-games.cadence.DeviceActivityMonitor com.meowtaverse-games.cadence.ShieldConfiguration; do
+            app-store-connect fetch-signing-files "$bundle_id" --type IOS_APP_DEVELOPMENT --strict-match-identifier --create
+          done
+          keychain add-certificates
+          xcode-project use-profiles --project ios/Cadence.xcodeproj --archive-method development --export-options-plist "$CM_BUILD_DIR/export_options.plist"
+      - name: Build development IPA with locked package resolution
+        script: |
+          set -euo pipefail
+          mkdir -p build/logs
+          xcode-project build-ipa --project ios/Cadence.xcodeproj --scheme Cadence --config Release --archive-flags='-onlyUsePackageVersionsFromResolvedFile' --export-options-plist "$CM_BUILD_DIR/export_options.plist" 2>&1 | tee build/logs/ios-development.log
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/logs/*.log
+      - /tmp/xcodebuild_logs/*.log
