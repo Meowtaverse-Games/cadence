@@ -140,7 +140,9 @@ get / create / update のみの許可、書き込みの制約を確認する。
 3. ファイル名が `.json.txt` でないこと、JSON のキーが `apiKey` と `projectId` の2つで、
    設定画面の値と一致することをローカルで確認する。PowerShell で
    `Get-Content "$env:APPDATA\Cadence\cadence-firebase.json" -Raw | ConvertFrom-Json` を実行し、
-   エラーにならず2つのキーが表示されれば JSON として正しい（表示された API キーは共有しない）。
+   エラーになれば JSON の書き方が誤っている（表示された API キーは共有しない）。PowerShell は
+   アプリより緩く読むので、エラーにならなくてもアプリが読めない場合がある。最終的には、アプリの
+   設定画面に接続設定の問題が表示されないことで確かめる。
    このファイルをリポジトリに置かない。
    Firebase CLI 用の `firebase/firebase.json` とは別のファイルである。
 
