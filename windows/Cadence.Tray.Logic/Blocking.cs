@@ -69,7 +69,8 @@ public static class ScheduleStatus
         if (next is null) return "次の切替なし（14日以内）";
         var japan = next.Value.ToOffset(TimeSpan.FromHours(9));
         var today = clock.GetUtcNow().ToOffset(TimeSpan.FromHours(9)).Date;
-        return "次 " + japan.ToString(japan.Date == today ? "HH:mm" : "ddd HH:mm", CultureInfo.GetCultureInfo("ja-JP"));
+        var format = japan.Date == today ? "HH:mm" : japan.Date >= today.AddDays(7) ? "M/d ddd HH:mm" : "ddd HH:mm";
+        return "次 " + japan.ToString(format, CultureInfo.GetCultureInfo("ja-JP"));
     }
 
     public static string Tooltip(string state, BlockStatus block, DateTimeOffset? syncedAt, TimeProvider clock)

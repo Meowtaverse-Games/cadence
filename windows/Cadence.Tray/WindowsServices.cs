@@ -1,7 +1,5 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Cadence.Core;
 using Cadence.Tray.Logic;
@@ -32,30 +30,6 @@ internal sealed class DpapiSessionStore(string path) : ISessionStore
     }
 }
 
-internal sealed class DailyLog(string directory, TimeProvider clock)
-{
-    private readonly object gate = new();
-    public void Write(string code)
-    {
-        lock (gate)
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-                var now = clock.GetUtcNow().ToOffset(TimeSpan.FromHours(9));
-                foreach (var file in Directory.EnumerateFiles(directory, "*.txt"))
-                    if (DateTime.TryParseExact(Path.GetFileNameWithoutExtension(file), "yyyy-MM-dd", CultureInfo.InvariantCulture,
-                        DateTimeStyles.None, out var date) && date < now.Date.AddDays(-13)) File.Delete(file);
-                var path = Path.Combine(directory, now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".txt");
-                // Never log exception messages, HTTP bodies, credentials, or account identifiers.
-                var existing = File.Exists(path) ? File.ReadAllText(path) : "";
-                AtomicFile.Write(path, Encoding.UTF8.GetBytes(existing + now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " " + code + Environment.NewLine));
-            }
-            catch { /* Logging failure must not stop the tray or block loop. */ }
-        }
-    }
-}
-
 internal static class StartupRegistration
 {
     private const string Key = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -74,7 +48,7 @@ internal static class StartupRegistration
 
 internal sealed class ProcessMonitor(TimeProvider clock, DailyLog log, Action<string, string, bool> notify)
 {
-    private readonly NotificationLimiter limiter = new(clock);
+    private readonly ProcessNotifications notifications = new(clock, log.Write, notify);
     public void Tick(Timetable? timetable, IReadOnlyCollection<string> executables)
     {
         try
@@ -84,22 +58,17 @@ internal sealed class ProcessMonitor(TimeProvider clock, DailyLog log, Action<st
             {
                 using (process)
                 {
-                    string? name = null;
                     try
                     {
-                        if (process.Id == Environment.ProcessId) continue;
-                        name = process.ProcessName + ".exe";
+                        var id = process.Id;
+                        if (id == Environment.ProcessId) continue;
+                        var name = process.ProcessName + ".exe";
                         if (!executables.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
-                        process.Kill(entireProcessTree: true);
-                        if (limiter.Allow(name)) notify("集中の時間です", name + " を終了しました。", false);
+                        var result = ProcessTermination.TryKill(() => process.Kill(entireProcessTree: true), () => process.HasExited);
+                        if (result == TerminationResult.Killed) notifications.Success(name);
+                        else if (result == TerminationResult.Failed) notifications.Failure(name, id);
                     }
-                    catch (InvalidOperationException) { /* The process already exited. */ }
-                    catch
-                    {
-                        log.Write("process_termination_failed pid=" + process.Id + " exe=" + name?.Replace("\r", "").Replace("\n", ""));
-                        if (name is not null && executables.Contains(name, StringComparer.OrdinalIgnoreCase) && limiter.Allow(name))
-                            notify("アプリを終了できません", name + " の権限などを確認してください。", true);
-                    }
+                    catch { log.Write("process_inspection_failed"); }
                 }
             }
         }

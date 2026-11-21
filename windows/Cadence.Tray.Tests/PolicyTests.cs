@@ -42,6 +42,22 @@ public sealed class PolicyTests
     }
 
     [Theory]
+    [InlineData(6, "次 日 19:00")]
+    [InlineData(7, "次 1/12 月 19:00")]
+    [InlineData(8, "次 1/13 火 19:00")]
+    [InlineData(13, "次 1/18 日 19:00")]
+    public void TransitionsAtLeastAWeekAwayIncludeCalendarDate(int days, string expected)
+    {
+        var clock = new FakeClock();
+        var next = clock.Now.AddDays(days).ToOffset(TimeSpan.FromHours(-8));
+        Assert.Equal(expected, ScheduleStatus.NextText(next, clock));
+        var tooltip = ScheduleStatus.Tooltip(new string('あ', 200), new(false, next), clock.Now, clock);
+        Assert.Contains(expected, tooltip);
+        Assert.Contains("同期 2026/01/05 19:00", tooltip);
+        Assert.True(tooltip.Length <= 127);
+    }
+
+    [Theory]
     [InlineData(" Game ", "Game.exe")]
     [InlineData("Game.EXE", "Game.EXE")]
     [InlineData("game.exe.exe", "game.exe.exe")]
