@@ -80,13 +80,18 @@ Authentication の Settings で user actions を無効にできるとだけ説�
 
 ## 4. ルールをデプロイする（人が承認後に実行）
 
-管理者の環境で Node.js 24 と Firebase CLI を使う。リポジトリの `firebase/` で実行する。
-認証が必要なら、その管理者の環境で `firebase login` 相当の認証を済ませる。
+このリポジトリを clone したフォルダ（main の最新）で作業する。Node.js 24 を使い、Firebase CLI は
+`firebase/package.json` で版を固定したものを `npm ci` で入れる（グローバルに入れる必要はない）。
+ブラウザの無い環境（SSH で入ったサーバーなど）では `login --no-localhost` を使い、表示された URL を
+手元のブラウザで開いて許可する。Firebase CLI のログインは Google Cloud への広い権限を持つので、
+共有の環境では反映のあとにログアウトする。
 
 ```sh
-cd firebase
+cd <clone したフォルダ>/firebase
 npm ci
+npx --no-install firebase login --no-localhost
 npx --no-install firebase deploy --only firestore:rules --project <プロジェクト ID>
+npx --no-install firebase logout
 ```
 
 固定されたローカル CLI で `firebase deploy --only firestore:rules --project <プロジェクト ID>`
