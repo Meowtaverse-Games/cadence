@@ -1,11 +1,43 @@
 # iOS
 
 SwiftUI のアプリ本体と、Foundation だけに依存する Swift Package `CadenceCore`。
-iOS 16 / macOS 13 以上を対象とする。Screen Time、Firebase、extension は後続の PR で追加する。
+iOS 16 / macOS 13 以上、Swift 5 モード。Firebase は PR 4b で追加する。
+
+## ターゲットと端末内データ
+
+- `Cadence`: 権限の取得、アプリ選択、時間割編集、現在状態、記録の共有。
+- `DeviceActivityMonitor`: 開始/終了/毎日の見張りで判定し、終了済み監視を停止して次を補充。
+- `ShieldConfiguration`: 「集中の時間です」と、連続するブロックの解除時刻を端末時間で表示。
+
+3ターゲットは Family Controls と App Group `group.com.meowtaverse-games.cadence` を使う。
+本体に2 extension を埋め込み、Firebase や追加の外部パッケージは使わない。
+Info.plist と entitlements は `project.yml` から生成する。署名と Team はビルド時だけ設定する。
+
+`Shared/GroupStore.swift` は検証済み時間割（updatedAt なし）と FamilyActivitySelection を JSON 保存する。
+ファイルの一時書き込み・置換とプロセス間ロックを使い、読み出せないファイルは欠損として記録する。
+時間割がない/対象選択がない場合はブロックしない。本体は未認可なら監視を停止するが、
+extension は権限状態の読み違いだけでは停止せず、時間割で判定する。無効な編集は保存せず直前の時間割を保つ。
+
+`ActivityPlanner` は現在から14日を展開し、進行中を含む7区間までを計画する。
+毎日00:00〜23:59の見張りと合わせて最大8件。登録失敗でも本体の shield 更新は続ける。
+本体は起動・前面・保存・選択変更・タイムゾーン変更で全監視を入れ替え、BGAppRefreshTaskでも更新する。
+本体は権限状態の publisher を監視し、起動・前面・権限変更の短時間の重複をまとめる。
+extension は既存の必要な監視を維持して差分を補充する。保存した登録時のタイムゾーン identifier が
+変わった場合は見張りを含め全再登録し、その前に identifier を保存して再入時の繰り返しを防ぐ。
+
+記録は `os.Logger`（subsystem `com.meowtaverse-games.cadence`）と App Group に同じ内容を保存する。
+カテゴリ app/monitor/shield、最新500件、オフセット付きISO 8601。
+更新1回の記録を1件にまとめ、本文は4096文字まで、登録一覧は件数と区間名の先頭・末尾を残す。
+shield の通常表示は記録せず、読み込み障害だけを記録する。選択の内容は件数だけを記録する。
+「記録」画面で更新・テキスト共有・消去できる。実際の記録は公開リポジトリに貼らない。
+
+開発用 IPA はルートの `codemagic.yaml` の `ios-development` を手動実行する。
+Apple/Codemagicの設定、インストール、実機の確認表は [apple-setup.md](../docs/apple-setup.md) を参照。
+CIではScreen Timeの実動作や署名を検証できない。
 
 ## プロジェクトの生成とビルド
 
-Mac に Xcode 16.4 と XcodeGen 2.44.1 を用意して、リポジトリのルートから実行する。
+Mac に Xcode 26.6 と XcodeGen 2.44.1 を用意して、リポジトリのルートから実行する。
 生成した `Cadence.xcodeproj` はコミットしない。Apple の Team や署名設定は含めない。
 
 ```sh
@@ -16,7 +48,7 @@ xcodebuild build -project ios/Cadence.xcodeproj -scheme Cadence \
 ```
 
 `GoogleService-Info.plist` は任意のローカルファイルとして参照する。存在しなくても生成・ビルドできる。
-CI は `macos-15` / Xcode 16.4、公式リリースを SHA-256 で照合した XcodeGen 2.44.1 を使用する。
+CI は `macos-26` / Xcode 26.6、公式リリースを SHA-256 で照合した XcodeGen 2.44.1 を使用する。
 
 ## CadenceCore のテストと API
 

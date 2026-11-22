@@ -16,11 +16,11 @@ permissions:
   contents: read
 
 env:
-  DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
 jobs:
   core:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,12 +33,21 @@ jobs:
         run: swift test
 
   app:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Show pinned Xcode version
-        run: xcodebuild -version
+      - name: Show pinned Xcode version and export methods
+        run: |
+          xcodebuild -version
+          python3 - <<'PYHELP'
+          import subprocess
+          help_text = subprocess.run(["xcodebuild", "-help"], capture_output=True, text=True, check=True)
+          text = help_text.stdout + help_text.stderr
+          section = text.split("method : String", 1)[1].lstrip().split("\n\n", 1)[0]
+          print(section)
+          assert "debugging" in section and "development" in section
+          PYHELP
       - name: Install XcodeGen 2.44.1 from verified official release
         env:
           XCODEGEN_SHA256: a2e905fb68446e9bb4008cdfe2e13e3f176d0cbcca828b71770f8e53fca91b73
@@ -52,7 +61,7 @@ jobs:
           xcodegen --version
           test ! -e ios/GoogleService-Info.plist
           ios/scripts/generate-project.sh
-      - name: Build unsigned simulator app with locked package resolution
+      - name: Build unsigned simulator app and extensions with locked package resolution
         run: >-
           xcodebuild build
           -project ios/Cadence.xcodeproj
@@ -62,3 +71,8 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/CadenceDerivedData"
           -onlyUsePackageVersionsFromResolvedFile
           CODE_SIGNING_ALLOWED=NO
+      - name: Verify both extensions are embedded
+        run: |
+          app="$RUNNER_TEMP/CadenceDerivedData/Build/Products/Debug-iphonesimulator/Cadence.app"
+          test -d "$app/PlugIns/DeviceActivityMonitor.appex"
+          test -d "$app/PlugIns/ShieldConfiguration.appex"

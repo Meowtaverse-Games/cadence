@@ -75,7 +75,7 @@ Firestore の `users/{uid}/config/timetable` の1文書に、時間割全体を�
   `Set` / `Dictionary` は正準等価で比べるので使わず、`unicodeScalars` の列で比べる
   （`"\u00e9"` と `"e\u0301"` は別の `id`）。C# の `StringComparer.Ordinal` と同じ結果になる。
 - iOS では Firestore の SDK と `JSONSerialization` が整数・小数・真偽値をどれも `NSNumber` で返すので、
-  型の判定には注意する（PR 2 と PR 4）。
+  型の判定には注意する（PR 2 と PR 4b）。
 
 - 文書
   - `schemaVersion` が整数の `1` でない
@@ -175,7 +175,7 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   同じ判定で `ManagedSettingsStore` の shield を直接かけ外しする。
 - ブロック中の区間は元の開始時刻のまま登録する。
 
-### 実機で確かめること（PR 4）
+### 実機で確かめること（PR 4a）
 
 次は資料だけでは確かめきれないので、実機で確かめ、違っていればこの節を直す。
 
@@ -248,7 +248,7 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   できない。それ以外はすべて拒否する。書き込みでは、書き込み後の文書の形を最小限だけ確かめる:
   キーは `schemaVersion`、`timeZone`、`patterns`、`updatedAt` の4つちょうど（ほかのキーは禁止、
   4つとも必須）、`schemaVersion == 1`、`timeZone == 'Asia/Tokyo'`、`patterns` は 20 件以下のリスト、
-  `updatedAt == request.time`。パターンの中身はアプリが検証する。このため iPhone（PR 4）は、
+  `updatedAt == request.time`。パターンの中身はアプリが検証する。このため iPhone（PR 4b）は、
   書き込みのたびに（一部のフィールドだけを更新する場合も）`updatedAt` を
   `FieldValue.serverTimestamp()` で入れる。入れないと書き込みが拒否される。
   ルールはエミュレーターで自動テストする（`firebase/test/`、CI は `.github/workflows/firebase.yml`）。
@@ -272,11 +272,12 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
   （`ios/Package.resolved` が無ければコピーを飛ばす）。CI と Codemagic のビルドは
   `-onlyUsePackageVersionsFromResolvedFile` を付け、`Package.resolved` に無い版を取りに行かない。
   依存を足したり上げたりするときは、手元で解決し直した `Package.resolved` を `ios/` に戻してコミットする
-  （仕組みは PR 2 で作り、ファイルは Firebase を入れる PR 4 で初めてできる）。
+  （仕組みは PR 2 で作り、ファイルは Firebase を入れる PR 4b で初めてできる）。
 - `GoogleService-Info.plist` はリポジトリに無いので、`project.yml` では `optional: true` を付けて
   参照するか、CI ではダミーを置く。ファイルが無くてもプロジェクトの生成と CI のビルドが通るようにする。
 - 実機確認用: Codemagic に開発用の署名のワークフローを置き、登録した端末向けのビルドを作って入れる
-  （PR 4。Family Controls の開発用 entitlement は承認なしで使える）。
+  （PR 4a。Family Controls の開発用 entitlement は承認なしで使える）。Codemagic で作った `.ipa` は、
+  iPhone をつないだ Mac の Xcode（Devices and Simulators）か Apple Configurator で入れる。
 - Windows: GitHub Actions で `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
   の成果物を作る。
 
@@ -297,8 +298,12 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 | 2 | Swift の `CadenceCore`、XcodeGen のプロジェクト、iOS の CI | 1 の共通テストケース |
 | 3a | Firestore のルールとエミュレーターでのテスト、`docs/firebase-setup.md` | なし |
 | 3b | Windows のトレイアプリ（同期、ブロック、設定画面） | 1 |
-| 4 | iOS の Screen Time 連携（extension、スケジュール、shield、画面、同期）と、Codemagic の開発用署名のワークフロー | 2、3a のルールと Firebase の準備 |
-| 5 | Codemagic の設定と TestFlight 配布 | 4、entitlement の承認 |
+| 4a | iOS の Screen Time 連携（extension、スケジュール、shield、画面、端末内だけの時間割の編集）と、Codemagic の開発用署名のワークフロー、`docs/apple-setup.md` | 2 |
+| 4b | iOS の Firebase 連携（サインイン、時間割の読み書きと変更の受信、`Package.resolved`） | 4a、3a のルールと Firebase の準備 |
+| 5 | Codemagic の設定と TestFlight 配布 | 4b、entitlement の承認 |
+
+PR 4 は、Firebase が無くても iPhone でブロックを確かめられるように 4a と 4b に分ける。
+4a では時間割を端末の App Group にだけ保存し、4b で Firestore と同期する。
 
 PR 2、3a、3b の実装は互いに依存しないので並行して進める。ただし、PR 3b を実際の Firebase と
 Windows で通して確かめるのは、PR 3a の手順で Firebase を準備し、ルールをデプロイしたあとになる。
