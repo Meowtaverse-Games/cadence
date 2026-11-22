@@ -4,6 +4,9 @@ options:
   deploymentTarget:
     iOS: '16.0'
 packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    exactVersion: 13.2.0
   CadenceCore:
     path: CadenceCore
 settings:
@@ -53,6 +56,10 @@ targets:
         CURRENT_PROJECT_VERSION: '1'
         TARGETED_DEVICE_FAMILY: '1,2'
     dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
       - package: CadenceCore
       - target: DeviceActivityMonitor
         embed: true
