@@ -29,6 +29,7 @@ final class FirebaseSync: ObservableObject {
     private var uid: String?
     private var generation = UUID()
     private var linked = false
+    private var invalidServerDocument = false
     private var pendingUploads = 0
     private var writeSequence = 0
     private var auth: Auth?
@@ -76,7 +77,8 @@ final class FirebaseSync: ObservableObject {
     }
 
     private func authenticationChanged(_ user: User?) {
-        guard uid != user?.uid else { return }
+        // Auth notifications are asynchronous too: ignore a captured user from before sign-out.
+        guard auth?.currentUser?.uid == user?.uid, uid != user?.uid else { return }
         if let uid { defaults.removeObject(forKey: linkageKey(uid)) }
         generation = UUID() // Late listener/write callbacks from an old session have no effects.
         listener?.remove()
@@ -87,6 +89,7 @@ final class FirebaseSync: ObservableObject {
         initialUpload = false
         conflict = nil
         canOverwrite = false
+        invalidServerDocument = false
         error = nil
         uid = user?.uid
         email = user?.email
@@ -169,7 +172,11 @@ final class FirebaseSync: ObservableObject {
             pendingWrites: pending, remote: kind, hasLocal: local != nil, same: same)
         files.record(description + " action=\(decision.action)")
         // Cached or pending snapshots must not dismiss an unresolved server conflict.
-        if fromServer && !pending { conflict = nil; canOverwrite = false }
+        if fromServer && !pending {
+            conflict = nil
+            canOverwrite = false
+            if case .invalid = kind { invalidServerDocument = true } else { invalidServerDocument = false }
+        }
         switch decision.notice {
         case .waitingForServer: status = "サーバーの時間割を確認しています。接続を待っています。"
         case .pendingWrites: status = "サーバーへの保存を待っています。"
@@ -220,7 +227,12 @@ final class FirebaseSync: ObservableObject {
     }
 
     func localSaved(_ document: LocalTimetable) {
-        if linked && signedIn { upload(document, linking: false) }
+        if linked && signedIn {
+            upload(document, linking: false)
+        } else if signedIn && invalidServerDocument {
+            // A valid local timetable may have been created after the invalid server snapshot.
+            canOverwrite = true
+        }
     }
 
     private func upload(_ document: LocalTimetable, linking: Bool) {
