@@ -179,6 +179,7 @@ struct HomeScreen<Conflict: View>: View {
 }
 
 struct StatusCard: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let state: HomeState
     let now: Date
     let authorize: () -> Void
@@ -200,15 +201,27 @@ struct StatusCard: View {
                 WindowBar(window: window, name: state.document.patterns[window.patternIndex].name, now: now)
             } else { Text("今日の予定はありません").font(Theme.footnote).foregroundStyle(Theme.muted) }
             Rectangle().fill(Theme.line).frame(height: 1)
-            HStack {
-                Text("次の切り替え").font(Theme.footnote).foregroundStyle(Theme.muted)
-                Spacer()
-                if let next = status.next {
-                    Text("\(Theme.time(next)) →").font(Theme.mono)
-                    StateTag(text: status.blocked ? "FREE" : "FOCUS", color: status.blocked ? Theme.free : Theme.focus)
-                } else { Text("—").font(Theme.mono) }
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("次の切り替え").font(Theme.footnote).foregroundStyle(Theme.muted)
+                    transition(status)
+                }
+            } else {
+                HStack {
+                    Text("次の切り替え").font(Theme.footnote).foregroundStyle(Theme.muted)
+                    Spacer()
+                    transition(status)
+                }
             }
         }.cadenceCard().shadow(color: !idle && status.blocked ? Theme.focus.opacity(0.13) : .clear, radius: 20)
+    }
+    @ViewBuilder private func transition(_ status: (blocked: Bool, next: Date?)) -> some View {
+        HStack {
+            if let next = status.next {
+                Text("\(Theme.time(next)) →").font(Theme.mono)
+                StateTag(text: status.blocked ? "FREE" : "FOCUS", color: status.blocked ? Theme.free : Theme.focus)
+            } else { Text("—").font(Theme.mono) }
+        }
     }
     private func title(_ idle: Bool, _ blocked: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {

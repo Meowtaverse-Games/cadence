@@ -94,6 +94,7 @@ struct StateTag: View {
 }
 
 struct WindowBar: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let window: DisplayWindow
     let name: String
     var now: Date?
@@ -123,9 +124,16 @@ struct WindowBar: View {
                     context.fill(Path(CGRect(x: x, y: 0, width: 2, height: size.height)), with: .color(Theme.text))
                 }
             }.frame(height: 28).accessibilityHidden(true)
-            HStack {
-                Text(Theme.time(window.start)); Spacer(); Text(name); Spacer(); Text(Theme.time(window.end))
-            }.font(Theme.mono).foregroundStyle(Theme.muted)
+            if typeSize.isAccessibilitySize {
+                VStack(spacing: 8) {
+                    HStack { Text(Theme.time(window.start)); Spacer(); Text(Theme.time(window.end)) }
+                    Text(name)
+                }.font(Theme.mono).foregroundStyle(Theme.muted)
+            } else {
+                HStack {
+                    Text(Theme.time(window.start)); Spacer(); Text(name); Spacer(); Text(Theme.time(window.end))
+                }.font(Theme.mono).foregroundStyle(Theme.muted)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(name)、\(Theme.time(window.start))から\(Theme.time(window.end))。" + window.segments.map {

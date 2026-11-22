@@ -136,8 +136,9 @@ Release にはこの入口を含めない。shield のプレビューは OS の�
 設定できる色・マーク・文言を確認するための SwiftUI 表示。
 CI の `design-preview` は1種類の iPhone シミュレーターで起動し、本文の描画を確認して撮影する。
 起動中の黒い画像は再撮影し、描画されなければジョブを失敗にする。
-`ios-design-preview` artifact に9枚を保存する（14日間）。
-`home-focus-large` と `editor-large` はアクセシビリティ用の大きな文字で表示する。
+`ios-design-preview` artifact に11枚を保存する（14日間）。
+`home-focus-large`、`editor-large`、`editor-cycle-large` はアクセシビリティ用の大きな文字で表示する。
+`editor-cycle` と `editor-cycle-large` はセグメントとバーの部分へスクロールして撮影する。
 
 時間帯バー用の `TimetableDisplay` は表示専用の純粋関数。
 既存の `TimetableExpander` のブロック区間と、その補集合を使い、登録・保存の規則は変えない。

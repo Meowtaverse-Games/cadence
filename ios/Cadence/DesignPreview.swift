@@ -25,8 +25,9 @@ struct CadenceDesignPreview: View {
     }
     var body: some View {
         switch screen {
-        case "editor", "editor-large":
-            PatternEditorScreen(document: Self.document, pattern: Self.document.patterns[0]) { _ in nil }
+        case "editor", "editor-large", "editor-cycle", "editor-cycle-large":
+            PatternEditorScreen(document: Self.document, pattern: Self.document.patterns[0],
+                                initialScrollTarget: screen.contains("cycle") ? "cycle" : nil) { _ in nil }
         case "first-link":
             NavigationStack {
                 ScrollView {

@@ -23,6 +23,7 @@ struct PatternEditorScreen: View {
     @State var pattern: LocalPattern
     let editingBlocked: Bool
     let editingReason: String
+    let initialScrollTarget: String?
     let save: (LocalTimetable) -> String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -30,7 +31,9 @@ struct PatternEditorScreen: View {
     @State private var rows: [SegmentRow]
 
     init(document: LocalTimetable, pattern: LocalPattern, editingBlocked: Bool = false, editingReason: String = "",
+         initialScrollTarget: String? = nil,
          save: @escaping (LocalTimetable) -> String?) {
+        self.initialScrollTarget = initialScrollTarget
         self.document = document; self.editingBlocked = editingBlocked; self.editingReason = editingReason; self.save = save
         _pattern = State(initialValue: pattern)
         _rows = State(initialValue: pattern.segments.map { SegmentRow(kind: $0.kind, minutes: String($0.minutes)) })
@@ -38,68 +41,75 @@ struct PatternEditorScreen: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.spacing) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("パターン名").font(Theme.caption).foregroundStyle(Theme.muted)
-                        TextField("名前", text: $pattern.name).cadenceField()
-                        Toggle("有効", isOn: $pattern.enabled).tint(Theme.focus).frame(minHeight: 44)
-                    }.cadenceCard()
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("曜日").font(Theme.headline)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 4) {
-                                ForEach(1...7, id: \.self) { day in
-                                    Button {
-                                        if pattern.weekdays.contains(day) { pattern.weekdays.removeAll { $0 == day } }
-                                        else { pattern.weekdays.append(day) }
-                                    } label: { Text(dayNames([day])).frame(minWidth: 16) }
-                                        .buttonStyle(CadenceButtonStyle(primary: pattern.weekdays.contains(day)))
-                                        .accessibilityLabel("\(dayNames([day]))曜日")
-                                        .accessibilityAddTraits(pattern.weekdays.contains(day) ? .isSelected : [])
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.spacing) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("パターン名").font(Theme.caption).foregroundStyle(Theme.muted)
+                            TextField("名前", text: $pattern.name).cadenceField()
+                            Toggle("有効", isOn: $pattern.enabled).tint(Theme.focus).frame(minHeight: 44)
+                        }.cadenceCard()
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("曜日").font(Theme.headline)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 4) {
+                                    ForEach(1...7, id: \.self) { day in
+                                        Button {
+                                            if pattern.weekdays.contains(day) { pattern.weekdays.removeAll { $0 == day } }
+                                            else { pattern.weekdays.append(day) }
+                                        } label: { Text(dayNames([day])).frame(minWidth: 16) }
+                                            .buttonStyle(CadenceButtonStyle(primary: pattern.weekdays.contains(day)))
+                                            .accessibilityLabel("\(dayNames([day]))曜日")
+                                            .accessibilityAddTraits(pattern.weekdays.contains(day) ? .isSelected : [])
+                                    }
                                 }
                             }
                         }
-                    }
-                    ViewThatFits(in: .horizontal) {
-                        HStack { timeField("開始", text: $pattern.start); Text("→").foregroundStyle(Theme.muted); timeField("終了", text: $pattern.end) }
-                        VStack { timeField("開始", text: $pattern.start); timeField("終了", text: $pattern.end) }
-                    }
-                    Text("日本時間。終了が開始より前なら翌日、同じなら24時間です。")
-                        .font(Theme.footnote).foregroundStyle(Theme.muted)
-                    Text("テンプレート").font(Theme.headline)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            Button("集25 / 自5") { template("block", 25, "free", 5) }.accessibilityLabel("ブロック25分、自由5分")
-                            Button("集50 / 自10") { template("block", 50, "free", 10) }.accessibilityLabel("ブロック50分、自由10分")
-                            Button("自10 / 集20") { template("free", 10, "block", 20) }.accessibilityLabel("自由10分、ブロック20分")
-                        }.buttonStyle(CadenceButtonStyle())
-                    }
-                    Text("1サイクル（くり返し）").font(Theme.headline)
-                    ForEach($rows) { row in segmentRow(row) }
-                    Button("＋ セグメントを追加") { rows.append(SegmentRow(kind: "block", minutes: "15")) }
-                        .buttonStyle(CadenceButtonStyle()).disabled(rows.count >= 20)
-                    preview
-                    if let error { Text(error).font(Theme.footnote).foregroundStyle(Theme.alert) }
-                    if document.patterns.contains(where: { sameID($0) }) {
-                        Button("パターンを削除", role: .destructive) {
-                            var candidate = document
-                            candidate.patterns.removeAll { sameID($0) }
-                            finish(candidate)
-                        }.buttonStyle(CadenceButtonStyle())
-                    }
-                }.padding(Theme.spacing).disabled(editingBlocked)
-            }
-            .safeAreaInset(edge: .bottom) {
-                if editingBlocked { Text(editingReason).font(Theme.footnote).foregroundStyle(Theme.muted).padding().background(Theme.ground) }
-            }
-            .navigationTitle("PATTERN").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() }.frame(minHeight: 44) }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { savePattern() }.buttonStyle(CadenceButtonStyle(primary: true)).disabled(editingBlocked)
+                        ViewThatFits(in: .horizontal) {
+                            HStack { timeField("開始", text: $pattern.start); Text("→").foregroundStyle(Theme.muted); timeField("終了", text: $pattern.end) }
+                            VStack { timeField("開始", text: $pattern.start); timeField("終了", text: $pattern.end) }
+                        }
+                        Text("日本時間。終了が開始より前なら翌日、同じなら24時間です。")
+                            .font(Theme.footnote).foregroundStyle(Theme.muted)
+                        Text("テンプレート").font(Theme.headline)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                Button("集25 / 自5") { template("block", 25, "free", 5) }.accessibilityLabel("ブロック25分、自由5分")
+                                Button("集50 / 自10") { template("block", 50, "free", 10) }.accessibilityLabel("ブロック50分、自由10分")
+                                Button("自10 / 集20") { template("free", 10, "block", 20) }.accessibilityLabel("自由10分、ブロック20分")
+                            }.buttonStyle(CadenceButtonStyle())
+                        }
+                        Text("1サイクル（くり返し）").font(Theme.headline).id("cycle")
+                        ForEach($rows) { row in segmentRow(row) }
+                        Button("＋ セグメントを追加") { rows.append(SegmentRow(kind: "block", minutes: "15")) }
+                            .buttonStyle(CadenceButtonStyle()).disabled(rows.count >= 20)
+                        preview
+                        if let error { Text(error).font(Theme.footnote).foregroundStyle(Theme.alert) }
+                        if document.patterns.contains(where: { sameID($0) }) {
+                            Button("パターンを削除", role: .destructive) {
+                                var candidate = document
+                                candidate.patterns.removeAll { sameID($0) }
+                                finish(candidate)
+                            }.buttonStyle(CadenceButtonStyle())
+                        }
+                    }.padding(Theme.spacing).disabled(editingBlocked)
                 }
-            }.cadenceScreen()
+                .onAppear {
+                    if let initialScrollTarget {
+                        DispatchQueue.main.async { proxy.scrollTo(initialScrollTarget, anchor: .top) }
+                    }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    if editingBlocked { Text(editingReason).font(Theme.footnote).foregroundStyle(Theme.muted).padding().background(Theme.ground) }
+                }
+                .navigationTitle("PATTERN").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() }.frame(minHeight: 44) }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("保存") { savePattern() }.buttonStyle(CadenceButtonStyle(primary: true)).disabled(editingBlocked)
+                    }
+                }.cadenceScreen()
+            }
         }.preferredColorScheme(.dark)
     }
 
@@ -132,8 +142,8 @@ struct PatternEditorScreen: View {
             StateTag(text: row.wrappedValue.kind == "block" ? "FOCUS" : "FREE", color: row.wrappedValue.kind == "block" ? Theme.focus : Theme.free)
             Picker("種類", selection: row.kind) {
                 Text("ブロック").tag("block"); Text("自由").tag("free")
-            }.labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメントの種類")
-        }
+            }.pickerStyle(.menu).labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメントの種類")
+        }.fixedSize(horizontal: true, vertical: true)
     }
     private func segmentMinutes(_ row: Binding<SegmentRow>) -> some View {
         HStack(spacing: 8) {
