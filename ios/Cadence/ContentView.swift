@@ -12,6 +12,7 @@ struct ContentView: View {
         NavigationStack {
             List {
                 Section("今の状態") {
+                    if model.isRefreshing { Text("登録中…") }
                     Text(model.inactiveReason != nil ? "ブロックしていません" : model.blocked ? "ブロック中" : "自由時間")
                     if let reason = model.inactiveReason { Text(reason).font(.footnote) }
                     if let next = model.next {

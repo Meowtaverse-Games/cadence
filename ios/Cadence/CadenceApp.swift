@@ -3,18 +3,16 @@ import BackgroundTasks
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     static let refreshIdentifier = "com.meowtaverse-games.cadence.refresh"
-    private let queue = OperationQueue()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.refreshIdentifier, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { task.setTaskCompleted(success: false); return }
             Self.scheduleRefresh()
-            let operation = BlockOperation {
-                ScreenTimeCoordinator(category: "app").refresh(event: "BGタスク", reset: true)
+            let completion = BackgroundRefreshCompletion { task.setTaskCompleted(success: $0) }
+            task.expirationHandler = { completion.finish(success: false) }
+            Task { @MainActor in
+                AppRefreshService.shared.request("BGタスク") { completion.finish(success: true) }
             }
-            task.expirationHandler = { operation.cancel() }
-            operation.completionBlock = { [weak operation] in task.setTaskCompleted(success: operation?.isCancelled == false) }
-            self.queue.addOperation(operation)
         }
         Self.scheduleRefresh()
         return true

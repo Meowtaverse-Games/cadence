@@ -2,7 +2,6 @@ import Foundation
 import FamilyControls
 import CadenceCore
 import os
-import Darwin
 
 struct ActivityRecord: Codable {
     let start: Date
@@ -22,14 +21,22 @@ struct GroupStore {
         return root.appendingPathComponent(name)
     }
 
-    func locked<T>(_ name: String, _ body: () throws -> T) throws -> T {
-        let path = try url(name + ".lock").path
-        let fd = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
-        defer { close(fd) }
-        guard flock(fd, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
-        defer { flock(fd, LOCK_UN) }
-        return try body()
+    // Keep lock scopes private: callers can only request file operations, never run OS APIs here.
+    // 250ms bounds each write's contention cost so extension callbacks retain execution time.
+    private func locked<T>(_ name: String, _ body: () throws -> T) throws -> T {
+        do {
+            return try BoundedFileLock.withLock(at: url(name + ".lock"), timeout: 0.25, body: body)
+        } catch let timeout as BoundedFileLock.Timeout {
+            let message = "lockTimeout name=\(name) waitedMs=\(timeout.waitedMilliseconds) action=skipWrite"
+            if name == "events" {
+                // Never recurse into record: this is the lock needed to persist that record.
+                Logger(subsystem: "com.meowtaverse-games.cadence", category: category)
+                    .error("\(message, privacy: .public)")
+            } else {
+                record(message)
+            }
+            throw timeout
+        }
     }
 
     private func write<T: Encodable>(_ value: T, file: String) throws {
@@ -63,12 +70,12 @@ struct GroupStore {
         let data = try JSONEncoder().encode(timetable)
         let result = TimetableParser.parse(data: data)
         guard result.valid else { throw ValidationFailure(code: result.errorCode ?? "invalid_document") }
-        try locked("runtime") { try write(timetable, file: "timetable.json") }
+        try locked("timetable") { try write(timetable, file: "timetable.json") }
     }
 
     func selection() -> FamilyActivitySelection? { read("selection.json", as: FamilyActivitySelection.self) }
     func save(_ selection: FamilyActivitySelection) throws {
-        try locked("runtime") { try write(selection, file: "selection.json") }
+        try locked("selection") { try write(selection, file: "selection.json") }
     }
 
     // Diagnostic history only, never used as the source of scheduling or shield decisions.
@@ -76,18 +83,24 @@ struct GroupStore {
         read("activity-history.json", as: [String: ActivityRecord].self) ?? [:]
     }
 
-    func saveHistory(_ history: [String: ActivityRecord]) throws {
-        let recent = history.sorted { $0.value.start > $1.value.start }.prefix(100)
-        try write(Dictionary(uniqueKeysWithValues: recent.map { ($0.key, $0.value) }), file: "activity-history.json")
+    func saveHistory(_ additions: [String: ActivityRecord]) throws {
+        try locked("activity-history") {
+            let history = activityHistory().merging(additions) { _, new in new }
+            let recent = history.sorted { $0.value.start > $1.value.start }.prefix(100)
+            try write(Dictionary(uniqueKeysWithValues: recent.map { ($0.key, $0.value) }), file: "activity-history.json")
+        }
     }
 
     func registrationTimeZone() -> String? { read("registration-time-zone.json", as: String.self) }
     // Persist before stopMonitoring, so callbacks caused by the reset don't repeat it.
-    func saveRegistrationTimeZone(_ identifier: String) throws { try write(identifier, file: "registration-time-zone.json") }
+    func saveRegistrationTimeZone(_ identifier: String) throws {
+        try locked("registration-time-zone") { try write(identifier, file: "registration-time-zone.json") }
+    }
 
     func registrationErrors() -> [String] { read("registration-errors.json", as: [String].self) ?? [] }
-    // Called under the runtime lock.
-    func saveErrors(_ errors: [String]) throws { try write(errors, file: "registration-errors.json") }
+    func saveErrors(_ errors: [String]) throws {
+        try locked("registration-errors") { try write(errors, file: "registration-errors.json") }
+    }
 
     static func timestamp(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -133,7 +146,7 @@ struct GroupStore {
     }
 
     func logs() -> [String] {
-        do { return try locked("events") { try rawLogs().reversed() } }
+        do { return try rawLogs().reversed() }
         catch { record("readFailure file=events.json reason=\(Self.reason(error))"); return [] }
     }
 
