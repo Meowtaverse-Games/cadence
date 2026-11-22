@@ -63,6 +63,12 @@ internal class ChromeForm : Form
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == 0x317) // WM_PRINT: DefWindowProc otherwise paints an obsolete standard caption.
+        {
+            m.LParam = (IntPtr)(m.LParam.ToInt64() & ~2L); // PRF_NONCLIENT; client includes our caption buttons.
+            base.WndProc(ref m);
+            return;
+        }
         if (m.Msg == 0x83) // WM_NCCALCSIZE: first RECT is present in both payload variants.
         {
             var original = Marshal.PtrToStructure<NativeRect>(m.LParam);

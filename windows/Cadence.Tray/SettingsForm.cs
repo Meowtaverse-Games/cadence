@@ -81,8 +81,9 @@ internal sealed class SettingsForm : ChromeForm
         heading.Font = theme.Heading;
         root.Controls.AddRange([heading, statusRow, problem, error]);
         foreach (var content in pages) root.Controls.Add(content);
-        pill.Font = theme.Tag; pill.Dock = DockStyle.Fill; pill.TextAlign = ContentAlignment.MiddleCenter; pill.Margin = Padding.Empty;
+        pill.Font = theme.Tag; pill.Dock = DockStyle.None; pill.AutoSize = false; pill.TextAlign = ContentAlignment.MiddleCenter; pill.Margin = Padding.Empty;
         pillSurface.Controls.Add(pill);
+        pillSurface.Layout += (_, _) => pill.SetBounds(ScalePixel(12), ScalePixel(4), pillSurface.Width - ScalePixel(24), pillSurface.Height - ScalePixel(8));
         subtitle.Dock = DockStyle.None; subtitle.AutoSize = false;
         statusRow.Controls.AddRange([pillSurface, subtitle]);
         statusRow.Layout += (_, _) => { pillSurface.SetBounds(0, 0, ScalePixel(100), ScalePixel(30)); subtitle.SetBounds(ScalePixel(112), 0, statusRow.Width - ScalePixel(112), statusRow.Height); };
@@ -127,6 +128,7 @@ internal sealed class SettingsForm : ChromeForm
             Label("サインアウトしても保存済みの時間割によるブロックは続きます。"), startup]);
         var openFolder = Button("設定フォルダを開く");
         pages[3].Controls.AddRange([Label("Cadence はタスクバー右の通知領域（「^」の中）に常駐します。この画面を閉じても動き続けます。開き直すにはアイコンをダブルクリックするか、右クリック →「設定...」を選びます。"), connection, openFolder, reload, lastSync, Label("時刻はすべて日本時間です。")]);
+        error.Visible = false;
         error.TextChanged += (_, _) => { error.Visible = error.Text.Length > 0; LayoutContent(); };
         scroll.Layout += (_, _) => LayoutContent(); root.Layout += (_, _) => LayoutContent();
         ReloadExecutables(); SelectPage(0); ApplyTheme(); ResumeLayout(true);
@@ -398,13 +400,13 @@ internal sealed class SettingsForm : ChromeForm
         foreach (var name in executables)
         {
             var row = new RoundPanel { Dock = DockStyle.Top, Height = ScalePixel(60), Radius = 16, Fill = DesignTheme.Ground, Margin = new Padding(0, 0, 0, ScalePixel(6)), Tag = name };
-            var initial = Label(name[..1].ToUpperInvariant(), theme.Tag); var label = Label(name, theme.Mono);
+            var initial = new InitialBadge { Text = name[..1].ToUpperInvariant(), Font = theme.Tag }; var label = Label(name, theme.Mono);
             var count = Label("—", theme.Caption); count.Name = "count";
             var remove = Button("✕"); remove.Border = false; remove.AccessibleName = name + " を外す";
             foreach (var control in new Control[] { initial, label, count, remove }) { control.Dock = DockStyle.None; control.AutoSize = false; row.Controls.Add(control); }
             row.Layout += (_, _) => { initial.SetBounds(ScalePixel(16), ScalePixel(12), ScalePixel(36), ScalePixel(36)); label.SetBounds(ScalePixel(66), ScalePixel(18), row.Width - ScalePixel(250), ScalePixel(28)); count.SetBounds(row.Width - ScalePixel(176), ScalePixel(19), ScalePixel(120), ScalePixel(26)); remove.SetBounds(row.Width - ScalePixel(48), ScalePixel(10), ScalePixel(40), ScalePixel(40)); };
-            initial.TextAlign = ContentAlignment.MiddleCenter; label.AutoEllipsis = true;
-            void Hover(bool hot) { row.Fill = hot ? DesignTheme.Surface : DesignTheme.Ground; foreach (Control child in row.Controls) child.BackColor = row.Fill; initial.BackColor = DesignTheme.Surface2; row.Invalidate(); }
+            label.AutoEllipsis = true;
+            void Hover(bool hot) { row.Fill = hot ? DesignTheme.Surface : DesignTheme.Ground; foreach (Control child in row.Controls) child.BackColor = row.Fill; row.Invalidate(); }
             row.MouseEnter += (_, _) => Hover(true); row.MouseLeave += (_, _) => { if (!row.ClientRectangle.Contains(row.PointToClient(Cursor.Position))) Hover(false); };
             foreach (Control child in row.Controls) { child.MouseEnter += (_, _) => Hover(true); child.MouseLeave += (_, _) => { if (!row.ClientRectangle.Contains(row.PointToClient(Cursor.Position))) Hover(false); }; }
             remove.Click += (_, _) => { var proposed = executables.ToList(); proposed.Remove(name); if (saveExecutables(proposed)) { ReloadExecutables(); UpdateClock(); executable.Focus(); } };

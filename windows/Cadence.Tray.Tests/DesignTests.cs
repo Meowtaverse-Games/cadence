@@ -90,6 +90,8 @@ public sealed class DesignTests
         var timeline = Assert.IsType<TodayTimeline>(TodayTimeline.Build(json, now));
         Assert.Equal(DateTimeOffset.Parse("2026-01-05T19:00:00+09:00"), timeline.Start);
         Assert.Equal(12, timeline.Segments.Count);
+        Assert.Equal("合成の予定", timeline.Name);
+        Assert.Equal("自10 / 集20", timeline.Summary);
         if (current) Assert.Equal(fraction, timeline.NowFraction!.Value, 8);
         else Assert.Null(timeline.NowFraction);
         AssertCoverageAndCore(json, timeline);

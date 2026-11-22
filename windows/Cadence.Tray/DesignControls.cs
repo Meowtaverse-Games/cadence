@@ -121,3 +121,17 @@ internal sealed class SidebarPanel : Panel
         base.WndProc(ref m);
     }
 }
+
+internal sealed class InitialBadge : Control
+{
+    public InitialBadge() { DoubleBuffered = true; }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(BackColor);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var path = Shapes.Round(new RectangleF(0, 0, Width - 1, Height - 1), 10 * DeviceDpi / 96f);
+        using var brush = new SolidBrush(DesignTheme.Surface2);
+        e.Graphics.FillPath(brush, path);
+        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, DesignTheme.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+}

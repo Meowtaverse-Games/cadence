@@ -33,7 +33,7 @@ internal sealed class DesignTheme : IDisposable
 
     public void Apply(Control control)
     {
-        control.BackColor = control is Button or CheckBox ? Surface2 : control is TextBoxBase or ListBox ? Surface : Ground;
+        control.BackColor = control is RoundButton or ToggleSwitch ? control.Parent?.BackColor ?? Ground : control is Button or CheckBox ? Surface2 : control is TextBoxBase or ListBox ? Surface : Ground;
         control.ForeColor = Text;
         if (control is Button button)
         {
