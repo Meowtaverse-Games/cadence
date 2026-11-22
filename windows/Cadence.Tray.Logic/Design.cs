@@ -13,6 +13,16 @@ public static class TrayPresentation
     public static TrayState Evaluate(bool hasTimetable, bool blocked, bool authProblem, bool syncProblem, bool storageProblem) =>
         !hasTimetable || authProblem || syncProblem || storageProblem ? TrayState.Alert : blocked ? TrayState.Focus : TrayState.Free;
 
+    // Blocking is independent of the visual warning state (cached schedules keep running).
+    public static string Countdown(bool blocked, DateTimeOffset? nextChange, DateTimeOffset now)
+    {
+        if (nextChange is not { } next) return "次の切り替えはありません";
+        var remaining = Math.Max(0, (long)(next - now).TotalSeconds);
+        var time = next.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture);
+        return time + (blocked ? " まで · 残り " : " から · あと ") +
+            (remaining / 60).ToString("00", CultureInfo.InvariantCulture) + ":" + (remaining % 60).ToString("00", CultureInfo.InvariantCulture);
+    }
+
     public static SyncSummary Synchronization(bool configurationUsable, DateTimeOffset? lastSync, bool hasProblem)
     {
         var time = lastSync is { } at

@@ -49,11 +49,48 @@ public sealed class TodayActivityTests
     }
 
     [Fact]
+    public void TouchingDifferentPatternsMergeWithoutFreeAtTheirBoundary()
+    {
+        const string json = """{"schemaVersion":1,"timeZone":"Asia/Tokyo","patterns":[{"id":"first","name":"合成A","enabled":true,"weekdays":[1],"start":"19:00","end":"19:30","segments":[{"kind":"block","minutes":30}]},{"id":"second","name":"合成B","enabled":true,"weekdays":[1],"start":"19:30","end":"20:00","segments":[{"kind":"block","minutes":30}]}]}""";
+        var timetable = TimetableParser.Parse(json).Timetable!;
+        var start = DateTimeOffset.Parse("2026-01-05T19:00:00+09:00");
+        var end = start.AddHours(1);
+        // Core returns two touching windows, exercising TodayActivity's merge branch.
+        var intervals = TimetableExpander.Expand(timetable, start, end);
+        Assert.Equal(2, intervals.Count);
+        Assert.Equal(intervals[0].End, intervals[1].Start);
+        var atBoundary = TodayActivity.Build([], timetable, start.AddMinutes(30));
+        Assert.Equal(start, Assert.Single(atBoundary).At);
+        var finished = TodayActivity.Build([], timetable, end);
+        Assert.Equal(2, finished.Count);
+        Assert.Equal(end, finished[0].At);
+        Assert.Equal(TrayState.Free, finished[0].State);
+        Assert.Equal(start, finished[1].At);
+        Assert.Equal(TrayState.Focus, finished[1].State);
+    }
+
+    [Fact]
+    public void MultipleProcessesCountOncePerExePerScanButAgainInTheNextScan()
+    {
+        var lines = new List<string>();
+        var reporter = new ProcessNotifications(new FakeClock(), lines.Add, (_, _, _) => { });
+        reporter.BeginScan();
+        reporter.Success("browser.exe"); reporter.Success("BROWSER.EXE"); reporter.Success("browser.exe");
+        reporter.Success("other.exe");
+        Assert.Equal(new[] { "process_terminated exe=browser.exe", "process_terminated exe=other.exe" }, lines);
+        reporter.BeginScan();
+        reporter.Success("browser.exe"); reporter.Success("BROWSER.EXE");
+        Assert.Equal(3, lines.Count);
+        var parsed = TodayActivity.Parse(lines.Select(line => "19:00:00 " + line), new(2026, 1, 5));
+        Assert.Equal(2, TodayActivity.Count(parsed, "browser.exe", DateTimeOffset.Parse("2026-01-05T19:00:02+09:00")));
+    }
+
+    [Fact]
     public void SuccessLoggingIsNotThrottledWithNotificationsAndMissingLogIsHarmless()
     {
         var lines = new List<string>(); var notifications = 0;
         var reporter = new ProcessNotifications(new FakeClock(), lines.Add, (_, _, _) => notifications++);
-        reporter.Success("sample.exe"); reporter.Success("sample.exe");
+        reporter.Success("sample.exe"); reporter.BeginScan(); reporter.Success("sample.exe");
         Assert.Equal(2, lines.Count); Assert.Equal(1, notifications);
         Assert.All(lines, line => Assert.Equal("process_terminated exe=sample.exe", line));
         Assert.Empty(new DailyLog(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), new FakeClock()).Read(DateTimeOffset.UtcNow));
