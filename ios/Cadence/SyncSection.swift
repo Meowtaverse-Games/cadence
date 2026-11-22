@@ -74,10 +74,10 @@ struct SyncPanel: View {
                     }
                     Button("サインアウト", role: .destructive, action: signOut).buttonStyle(CadenceButtonStyle())
                 } else {
-                    TextField("メールアドレス", text: $email)
+                    TextField("メールアドレス", text: $email, prompt: Text("メールアドレス").foregroundColor(Theme.muted))
                         .keyboardType(.emailAddress).textContentType(.username)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().cadenceField()
-                    SecureField("パスワード", text: $password).textContentType(.password).cadenceField()
+                    SecureField("パスワード", text: $password, prompt: Text("パスワード").foregroundColor(Theme.muted)).textContentType(.password).cadenceField()
                     Button(state.signingIn ? "サインイン中…" : "サインイン") {
                         signIn(email, password); password = ""
                     }.buttonStyle(CadenceButtonStyle(primary: true)).disabled(state.signingIn || email.isEmpty || password.isEmpty)

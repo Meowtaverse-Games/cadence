@@ -46,7 +46,7 @@ struct PatternEditorScreen: View {
                     VStack(alignment: .leading, spacing: Theme.spacing) {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("パターン名").font(Theme.caption).foregroundStyle(Theme.muted)
-                            TextField("名前", text: $pattern.name).cadenceField()
+                            TextField("名前", text: $pattern.name, prompt: Text("名前").foregroundColor(Theme.muted)).cadenceField()
                             Toggle("有効", isOn: $pattern.enabled).tint(Theme.focus).frame(minHeight: 44)
                         }.cadenceCard()
                         VStack(alignment: .leading, spacing: 10) {
@@ -116,7 +116,7 @@ struct PatternEditorScreen: View {
     private func timeField(_ title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(Theme.caption).foregroundStyle(Theme.muted)
-            TextField("HH:mm", text: text).font(Theme.clock).keyboardType(.numbersAndPunctuation)
+            TextField("HH:mm", text: text, prompt: Text("HH:mm").foregroundColor(Theme.muted)).font(Theme.clock).keyboardType(.numbersAndPunctuation)
                 .accessibilityLabel("\(title)時刻、日本時間").cadenceField()
         }
     }
@@ -147,7 +147,7 @@ struct PatternEditorScreen: View {
     }
     private func segmentMinutes(_ row: Binding<SegmentRow>) -> some View {
         HStack(spacing: 8) {
-            TextField("分", text: row.minutes).keyboardType(.numberPad)
+            TextField("分", text: row.minutes, prompt: Text("分").foregroundColor(Theme.muted)).keyboardType(.numberPad)
                 .font(Theme.inputNumber).frame(minWidth: 44, maxWidth: 60).cadenceField()
                 .accessibilityLabel("セグメントの分数")
             Text("分").font(Theme.caption).foregroundStyle(Theme.muted)
