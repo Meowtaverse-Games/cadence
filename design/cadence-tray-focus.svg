@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Cadence FOCUS">
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="#0B1216"/>
+  <circle cx="16" cy="16" r="10" fill="none" stroke="#FFB648" stroke-width="4" stroke-dasharray="17.94 3" transform="rotate(-90 16 16)"/>
+  <rect x="13" y="13" width="6" height="6" rx="0.8" fill="#FFB648" stroke="#FFB648" stroke-width="0" transform="rotate(45 16 16)"/>
+</svg>

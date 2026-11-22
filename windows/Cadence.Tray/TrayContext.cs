@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Cadence.Tray.Logic;
 
 namespace Cadence.Tray;
@@ -19,9 +18,8 @@ internal sealed class TrayContext : ApplicationContext
     private readonly System.Windows.Forms.Timer blockTimer = new() { Interval = 2000 };
     private readonly System.Windows.Forms.Timer syncTimer = new() { Interval = 60000 };
     private readonly CancellationTokenSource shutdown = new();
-    private readonly Icon blockedIcon = MakeIcon(Color.Firebrick);
-    private readonly Icon freeIcon = MakeIcon(Color.SeaGreen);
-    private readonly Icon problemIcon = MakeIcon(Color.DarkOrange);
+    private TrayIcons icons = new(MarkRenderer.TraySize());
+    private bool highContrast = DesignTheme.HighContrast;
     private SettingsForm? settings;
     private bool syncing;
     private bool exiting;
@@ -47,7 +45,7 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add("設定...", null, (_, _) => OpenSettings());
         menu.Items.Add("今すぐ同期", null, async (_, _) => await SynchronizeAsync());
         menu.Items.Add("終了", null, (_, _) => ExitThread());
-        tray = new() { Visible = true, Icon = problemIcon, ContextMenuStrip = menu, Text = "Cadence" };
+        tray = new() { Visible = true, Icon = icons.Alert, ContextMenuStrip = menu, Text = "Cadence" };
         tray.DoubleClick += (_, _) => OpenSettings();
         monitor = new(clock, log, Notify);
         blockTimer.Tick += async (_, _) =>
@@ -117,11 +115,21 @@ internal sealed class TrayContext : ApplicationContext
     {
         var block = ScheduleStatus.Evaluate(service.State.Timetable, clock);
         var state = DisplayState();
-        tray.Icon = service.State.Timetable is null || service.AuthProblem is not null || service.State.Problem is not null || service.StorageProblem is not null
-            ? problemIcon : block.Blocked ? blockedIcon : freeIcon;
+        RefreshIcons();
+        var visualState = TrayPresentation.Evaluate(service.State.Timetable is not null, block.Blocked,
+            service.AuthProblem is not null, service.State.Problem is not null, service.StorageProblem is not null);
+        tray.Icon = visualState switch { TrayState.Focus => icons.Focus, TrayState.Free => icons.Free, _ => icons.Alert };
         tray.Text = ScheduleStatus.Tooltip(state, block, service.State.LastSync, clock);
         stateMenu.Text = state;
-        settings?.RefreshStatus(state, service, configuration);
+        var next = ScheduleStatus.NextText(block.NextChange, clock);
+        var summary = service.State.Timetable is null ? "時間割を読み込めません"
+            : block.Blocked ? "集中の時間" + (block.NextChange is null ? "" : " · " + next[2..] + " まで")
+            : "自由時間" + (block.NextChange is null ? "" : " · 次は " + next[2..] + " から");
+        var syncProblem = service.AuthProblem ?? service.State.Problem ?? service.StorageProblem;
+        settings?.RefreshStatus(new(visualState, summary,
+            TrayPresentation.Synchronization(configuration.Usable, service.State.LastSync, syncProblem is not null),
+            service.Email, service.Configured, configuration.Message,
+            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow()), configuration.Usable));
         if (service.TakeAuthNotification()) Notify("サインインが必要です", "設定画面でサインインしてください。保存済みの時間割でブロックを続けます。", true);
     }
 
@@ -176,36 +184,23 @@ internal sealed class TrayContext : ApplicationContext
             syncTimer.Dispose();
             tray.ContextMenuStrip?.Dispose();
             tray.Dispose();
-            blockedIcon.Dispose();
-            freeIcon.Dispose();
-            problemIcon.Dispose();
+            icons.Dispose();
             service.Dispose();
             shutdown.Dispose();
         }
         base.Dispose(disposing);
     }
 
-    private static Icon MakeIcon(Color color)
+    private void RefreshIcons()
     {
-        using var bitmap = new Bitmap(32, 32);
-        using (var graphics = Graphics.FromImage(bitmap))
-        {
-            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using var brush = new SolidBrush(color);
-            graphics.FillEllipse(brush, 3, 3, 26, 26);
-            using var pen = new Pen(Color.White, 2);
-            graphics.DrawEllipse(pen, 3, 3, 26, 26);
-        }
-        var handle = bitmap.GetHicon();
-        try
-        {
-            using var original = Icon.FromHandle(handle);
-            return (Icon)original.Clone();
-        }
-        finally { DestroyIcon(handle); }
+        var size = MarkRenderer.TraySize();
+        if (size == icons.Size && highContrast == DesignTheme.HighContrast) return;
+        var replacement = new TrayIcons(size);
+        try { tray.Icon = replacement.Alert; }
+        catch { replacement.Dispose(); throw; }
+        var previous = icons;
+        icons = replacement;
+        previous.Dispose();
+        highContrast = DesignTheme.HighContrast;
     }
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DestroyIcon(IntPtr handle);
 }

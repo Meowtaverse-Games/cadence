@@ -54,6 +54,7 @@ internal sealed class ProcessMonitor(TimeProvider clock, DailyLog log, Action<st
         try
         {
             if (timetable is null || !TimetableExpander.IsBlockedAt(timetable, clock.GetUtcNow())) return;
+            var blockEnd = ScheduleStatus.Evaluate(timetable, clock).NextChange;
             foreach (var process in Process.GetProcesses())
             {
                 using (process)
@@ -65,7 +66,7 @@ internal sealed class ProcessMonitor(TimeProvider clock, DailyLog log, Action<st
                         var name = process.ProcessName + ".exe";
                         if (!executables.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
                         var result = ProcessTermination.TryKill(() => process.Kill(entireProcessTree: true), () => process.HasExited);
-                        if (result == TerminationResult.Killed) notifications.Success(name);
+                        if (result == TerminationResult.Killed) notifications.Success(name, blockEnd);
                         else if (result == TerminationResult.Failed) notifications.Failure(name, id);
                     }
                     catch { log.Write("process_inspection_failed"); }

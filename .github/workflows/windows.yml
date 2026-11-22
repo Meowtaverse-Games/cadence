@@ -4,11 +4,13 @@ on:
   push:
     paths:
       - 'windows/**'
+      - 'design/**'
       - 'spec/**'
       - '.github/workflows/windows.yml'
   pull_request:
     paths:
       - 'windows/**'
+      - 'design/**'
       - 'spec/**'
       - '.github/workflows/windows.yml'
 
@@ -49,4 +51,16 @@ jobs:
           name: cadence-windows-win-x64
           path: windows/Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish/
           if-no-files-found: error
+          retention-days: 14
+      - name: Render synthetic design previews
+        continue-on-error: true
+        run: dotnet run --project Cadence.Tray -c Release --no-build --no-restore -- --design-preview design-preview
+      - name: Upload design previews
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-design-preview
+          path: windows/design-preview/*.png
+          if-no-files-found: warn
           retention-days: 14
