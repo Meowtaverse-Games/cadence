@@ -196,7 +196,7 @@ jobs:
               screenshot = output / (screen + ".png")
               validator = str(Path(os.environ["RUNNER_TEMP"]) / "validate-design-preview")
               for attempt in range(10):
-                  time.sleep(3)
+                  time.sleep(5)
                   run("xcrun", "simctl", "io", udid, "screenshot", str(screenshot))
                   if subprocess.run([validator, str(screenshot)], check=False).returncode == 0:
                       break

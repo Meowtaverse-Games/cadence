@@ -28,7 +28,7 @@ struct ContentView: View {
             .sheet(isPresented: $syncSheet) {
                 NavigationStack {
                     ScrollView { SyncSection(sync: model.sync, local: model.document).padding(Theme.spacing) }
-                        .navigationTitle("同期")
+                        .navigationTitle("同期").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { syncSheet = false }.frame(minHeight: 44) } }
                         .cadenceScreen()
                 }.preferredColorScheme(.dark)

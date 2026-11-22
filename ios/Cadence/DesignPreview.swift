@@ -32,12 +32,12 @@ struct CadenceDesignPreview: View {
                 ScrollView {
                     FirstLinkView(local: Self.document, remote: LocalTimetable(), uploading: false, useLocal: {}, useServer: {})
                         .padding(Theme.spacing)
-                }.cadenceScreen()
+                }.cadenceScreen().toolbar(.hidden, for: .navigationBar)
             }
         case "sync":
             NavigationStack {
                 ScrollView { SyncPanel(state: SyncState(), signIn: { _, _ in }, signOut: {}, dismissFailure: {}, overwrite: {}).padding(Theme.spacing) }
-                    .navigationTitle("同期").cadenceScreen()
+                    .navigationTitle("同期").navigationBarTitleDisplayMode(.inline).cadenceScreen()
             }
         case "shield":
             ShieldPreview()

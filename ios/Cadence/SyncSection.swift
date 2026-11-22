@@ -41,7 +41,7 @@ struct SyncState {
         configured = sync.configured; signedIn = sync.signedIn; signingIn = sync.signingIn
         status = sync.status; email = sync.email; lastSync = sync.lastSync
         hasWriteFailure = sync.hasWriteFailure; canDismissWriteFailure = sync.canDismissWriteFailure
-        canOverwrite = sync.canOverwrite; retryingInitialUpload = sync.retryingInitialUpload
+        canOverwrite = sync.conflict == nil && sync.canOverwrite; retryingInitialUpload = sync.retryingInitialUpload
         initialUpload = sync.initialUpload; error = sync.error
     }
 }
