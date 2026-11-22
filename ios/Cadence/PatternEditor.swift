@@ -142,7 +142,7 @@ struct PatternEditorScreen: View {
             StateTag(text: row.wrappedValue.kind == "block" ? "FOCUS" : "FREE", color: row.wrappedValue.kind == "block" ? Theme.focus : Theme.free)
             Picker("種類", selection: row.kind) {
                 Text("ブロック").tag("block"); Text("自由").tag("free")
-            }.pickerStyle(.menu).labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメントの種類")
+            }.pickerStyle(.menu).tint(row.wrappedValue.kind == "block" ? Theme.focus : Theme.free).labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメントの種類")
         }.fixedSize(horizontal: true, vertical: true)
     }
     private func segmentMinutes(_ row: Binding<SegmentRow>) -> some View {
