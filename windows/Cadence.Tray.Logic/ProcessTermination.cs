@@ -28,9 +28,11 @@ public sealed class ProcessNotifications(TimeProvider clock, Action<string> log,
     private readonly NotificationLimiter notifications = new(clock);
     private readonly NotificationLimiter failureLogs = new(clock);
 
-    public void Success(string executable)
+    public void Success(string executable, DateTimeOffset? blockEnd = null)
     {
-        if (notifications.Allow(executable)) notify("集中の時間です", executable + " を終了しました。", false);
+        if (notifications.Allow(executable)) notify(executable + " を終了しました", blockEnd is { } end
+            ? "集中の時間です（" + end.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture) + " まで）"
+            : "集中の時間です", false);
     }
 
     public void Failure(string executable, int processId)

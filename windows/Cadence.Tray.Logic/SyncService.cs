@@ -6,6 +6,7 @@ namespace Cadence.Tray.Logic;
 public sealed class SyncState
 {
     public Timetable? Timetable { get; private set; }
+    public string? TimetableJson { get; private set; }
     public DateTimeOffset? LastSync { get; private set; }
     public string? Problem { get; private set; }
 
@@ -15,6 +16,7 @@ public sealed class SyncState
         var parsed = TimetableParser.Parse(cache.Json);
         if (!parsed.Valid) return;
         Timetable = parsed.Timetable;
+        TimetableJson = cache.Json;
         LastSync = cache.FetchedAt;
     }
 
@@ -30,6 +32,7 @@ public sealed class SyncState
                 return null;
             }
             Timetable = parsed.Timetable;
+            TimetableJson = json;
             LastSync = clock.GetUtcNow();
             Problem = null;
             return new(json!, LastSync.Value);
