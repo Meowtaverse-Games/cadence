@@ -77,8 +77,7 @@ internal sealed class SettingsForm : Form
         {
             using var pen = new Pen(displayState == TrayState.Focus ? DesignTheme.Focus : DesignTheme.Line);
             e.Graphics.DrawRectangle(pen, 0, 0, statusCard.Width - 1, statusCard.Height - 1);
-            // Draw on the card itself: native Label printing can omit a prefix in
-            // DrawToBitmap. This also reserves the entire next row for Japanese.
+            // Keep the summary in the top row and reserve the full next row for Japanese.
             var scale = DeviceDpi / 96f;
             using var font = new Font(theme.Mono.FontFamily, theme.Mono.SizeInPoints * DeviceDpi / 72f, GraphicsUnit.Pixel);
             using var brush = new SolidBrush(DesignTheme.Muted);
