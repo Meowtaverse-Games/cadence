@@ -25,6 +25,7 @@ struct PatternEditorScreen: View {
     let editingReason: String
     let save: (LocalTimetable) -> String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var error: String?
     @State private var rows: [SegmentRow]
 
@@ -75,7 +76,7 @@ struct PatternEditorScreen: View {
                         }.buttonStyle(CadenceButtonStyle())
                     }
                     Text("1サイクル（くり返し）").font(Theme.headline)
-                    ForEach(Array(rows.indices), id: \.self) { index in segmentRow(index) }
+                    ForEach($rows) { row in segmentRow(row) }
                     Button("＋ セグメントを追加") { rows.append(SegmentRow(kind: "block", minutes: "15")) }
                         .buttonStyle(CadenceButtonStyle()).disabled(rows.count >= 20)
                     preview
@@ -110,28 +111,51 @@ struct PatternEditorScreen: View {
         }
     }
 
-    private func segmentRow(_ index: Int) -> some View {
+    private func segmentRow(_ row: Binding<SegmentRow>) -> some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 3).fill(rows[index].kind == "block" ? Theme.focus : Theme.free).frame(width: 5)
-            VStack(alignment: .leading, spacing: 0) {
-                StateTag(text: rows[index].kind == "block" ? "FOCUS" : "FREE", color: rows[index].kind == "block" ? Theme.focus : Theme.free)
-                Picker("種類", selection: $rows[index].kind) {
-                    Text("ブロック").tag("block"); Text("自由").tag("free")
-                }.labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメント\(index + 1)の種類")
+            RoundedRectangle(cornerRadius: 3).fill(row.wrappedValue.kind == "block" ? Theme.focus : Theme.free).frame(width: 5)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack { segmentKind(row); Spacer(minLength: 0); segmentMenu(row.wrappedValue.id) }
+                    segmentMinutes(row)
+                }
+            } else {
+                segmentKind(row)
+                Spacer(minLength: 0)
+                segmentMinutes(row)
+                segmentMenu(row.wrappedValue.id)
             }
-            Spacer(minLength: 0)
-            TextField("分", text: $rows[index].minutes).keyboardType(.numberPad)
-                .font(Theme.inputNumber).frame(minWidth: 44, maxWidth: 60).cadenceField()
-                .accessibilityLabel("セグメント\(index + 1)の分数")
-            Text("分").font(Theme.caption).foregroundStyle(Theme.muted)
-            Menu {
-                Button { rows.swapAt(index, index - 1) } label: { Label("上へ移動", systemImage: "arrow.up") }.disabled(index == 0)
-                Button { rows.swapAt(index, index + 1) } label: { Label("下へ移動", systemImage: "arrow.down") }.disabled(index == rows.count - 1)
-                Button(role: .destructive) { rows.remove(at: index) } label: { Label("削除", systemImage: "trash") }
-            } label: {
-                Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-            }.accessibilityLabel("セグメント\(index + 1)の並べ替えと削除")
         }.fixedSize(horizontal: false, vertical: true).cadenceCard()
+    }
+    private func segmentKind(_ row: Binding<SegmentRow>) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            StateTag(text: row.wrappedValue.kind == "block" ? "FOCUS" : "FREE", color: row.wrappedValue.kind == "block" ? Theme.focus : Theme.free)
+            Picker("種類", selection: row.kind) {
+                Text("ブロック").tag("block"); Text("自由").tag("free")
+            }.labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメントの種類")
+        }
+    }
+    private func segmentMinutes(_ row: Binding<SegmentRow>) -> some View {
+        HStack(spacing: 8) {
+            TextField("分", text: row.minutes).keyboardType(.numberPad)
+                .font(Theme.inputNumber).frame(minWidth: 44, maxWidth: 60).cadenceField()
+                .accessibilityLabel("セグメントの分数")
+            Text("分").font(Theme.caption).foregroundStyle(Theme.muted)
+        }
+    }
+    private func segmentMenu(_ id: UUID) -> some View {
+        let index = rows.firstIndex { $0.id == id }
+        return Menu {
+            Button { move(id, by: -1) } label: { Label("上へ移動", systemImage: "arrow.up") }.disabled(index == nil || index == 0)
+            Button { move(id, by: 1) } label: { Label("下へ移動", systemImage: "arrow.down") }.disabled(index == nil || index == rows.count - 1)
+            Button(role: .destructive) { rows.removeAll { $0.id == id } } label: { Label("削除", systemImage: "trash") }
+        } label: {
+            Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+        }.accessibilityLabel("セグメントの並べ替えと削除")
+    }
+    private func move(_ id: UUID, by offset: Int) {
+        guard let index = rows.firstIndex(where: { $0.id == id }), rows.indices.contains(index + offset) else { return }
+        rows.swapAt(index, index + offset)
     }
 
     private var preview: some View {

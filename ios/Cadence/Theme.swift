@@ -14,6 +14,7 @@ enum Theme {
     static let radius: CGFloat = 16
     static let spacing: CGFloat = 16
     static let title = Font.title2.weight(.bold)
+    static let statusTitle = Font.title.weight(.bold)
     static let shieldTitle = Font.title.weight(.bold)
     static let headline = Font.headline
     static let body = Font.subheadline

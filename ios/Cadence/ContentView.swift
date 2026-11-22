@@ -213,7 +213,7 @@ struct StatusCard: View {
     private func title(_ idle: Bool, _ blocked: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             StateTag(text: idle ? "IDLE" : blocked ? "FOCUS" : "FREE", color: idle ? Theme.muted : blocked ? Theme.focus : Theme.free)
-            Text(idle ? "ブロックしていません" : blocked ? "集中の時間" : "自由時間").font(Theme.title).fixedSize(horizontal: false, vertical: true)
+            Text(idle ? "ブロックしていません" : blocked ? "集中の時間" : "自由時間").font(Theme.statusTitle).fixedSize(horizontal: false, vertical: true)
         }
     }
     @ViewBuilder private func countdown(_ status: (blocked: Bool, next: Date?)) -> some View {
@@ -235,7 +235,7 @@ struct PatternSummary: View {
                 .frame(width: 10, height: 10).rotationEffect(.degrees(45)).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(pattern.name).font(.subheadline.weight(.medium))
-                Text("\(pattern.start)–\(pattern.end) · \(dayNames(pattern.weekdays)) · \(pattern.segments.map { "\($0.kind == "block" ? "集" : "自")\($0.minutes)" }.joined(separator: "/"))")
+                Text("\(pattern.start)–\(pattern.end) · \(compactDayNames(pattern.weekdays)) · \(pattern.segments.map { "\($0.kind == "block" ? "集" : "自")\($0.minutes)" }.joined(separator: "/"))")
                     .font(Theme.mono).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -247,6 +247,11 @@ struct PatternSummary: View {
 func dayNames(_ values: [Int]) -> String {
     let names = ["月", "火", "水", "木", "金", "土", "日"]
     return values.sorted().filter { (1...7).contains($0) }.map { names[$0 - 1] }.joined(separator: "・")
+}
+
+func compactDayNames(_ values: [Int]) -> String {
+    if values.sorted() == Array(1...7) { return "毎日" }
+    return dayNames(values).replacingOccurrences(of: "・", with: "")
 }
 
 struct LogView: View {
