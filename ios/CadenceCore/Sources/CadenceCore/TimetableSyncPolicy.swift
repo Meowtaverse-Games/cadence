@@ -37,7 +37,8 @@ public struct SyncDecision: Equatable {
 /// No clocks, persistence or Firebase types: the caller executes effects only after this decision.
 public enum TimetableSyncPolicy {
     public static func decide(linked: Bool, fromServer: Bool, pendingWrites: Bool,
-                              remote: SyncRemoteDocument, hasLocal: Bool, same: Bool) -> SyncDecision {
+                              remote: SyncRemoteDocument, hasLocal: Bool, same: Bool,
+                              initialUploadFailed: Bool = false) -> SyncDecision {
         if !linked && !fromServer { return SyncDecision(.keep, notice: .waitingForServer) }
         // Local echoes cannot confirm an initial upload or roll back a newer local edit.
         if pendingWrites { return SyncDecision(.keep, notice: .pendingWrites) }
@@ -45,10 +46,14 @@ public enum TimetableSyncPolicy {
         case .missing:
             if !fromServer { return SyncDecision(.keep) }
             if linked { return SyncDecision(.keep, notice: .missing) }
+            if initialUploadFailed { return SyncDecision(.keep, notice: .missing) }
             return SyncDecision(hasLocal ? .upload : .markLinked)
         case .invalid(let code):
             return SyncDecision(.keep, notice: .invalid(code))
         case .valid:
+            // After a rejected initial write, snapshots cannot silently resolve the retry UI.
+            // The user may retry uploading or explicitly choose the latest server content.
+            if !linked && initialUploadFailed { return SyncDecision(.askUser, notice: .conflict) }
             if hasLocal && same {
                 return SyncDecision(linked ? .keep : .markLinked, confirmSync: fromServer)
             }

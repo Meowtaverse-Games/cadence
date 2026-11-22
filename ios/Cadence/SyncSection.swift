@@ -9,7 +9,10 @@ struct SyncSection: View {
 
     var body: some View {
         Section("同期") {
-            Text(sync.status)
+            Text(sync.status).foregroundStyle(sync.hasWriteFailure ? .red : .primary)
+            if sync.canDismissWriteFailure {
+                Button("保存エラーの案内を閉じる") { sync.dismissWriteFailure() }
+            }
             if sync.configured {
                 if sync.signedIn {
                     Text(sync.email ?? "サインイン済み")
@@ -24,7 +27,7 @@ struct SyncSection: View {
                         Button("サーバーの時間割を使う") { sync.useServer() }
                             .disabled(sync.initialUpload)
                     } else if sync.canOverwrite {
-                        Button("この iPhone の時間割で上書きする") { sync.useLocal() }
+                        Button(sync.retryingInitialUpload ? "この iPhone の時間割をサーバーに上げる" : "この iPhone の時間割で上書きする") { sync.useLocal() }
                             .disabled(sync.initialUpload)
                     }
                     Button("サインアウト", role: .destructive) { confirmSignOut = true }

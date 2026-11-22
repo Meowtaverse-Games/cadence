@@ -12,12 +12,26 @@ final class FirebaseSync: ObservableObject {
     @Published private(set) var email: String?
     @Published private(set) var signedIn = false
     @Published private(set) var signingIn = false
-    @Published private(set) var status = "このビルドには Firebase の設定がありません。時間割はこの端末にだけ保存されます。"
+    @Published private var progressStatus = "このビルドには Firebase の設定がありません。時間割はこの端末にだけ保存されます。"
     @Published private(set) var error: String?
     @Published private(set) var lastSync: Date?
     @Published private(set) var conflict: LocalTimetable?
     @Published private(set) var canOverwrite = false
     @Published private(set) var initialUpload = false
+
+    @Published private var recovery = SyncWriteRecovery()
+    private var snapshotLogGate = SyncSnapshotLogGate()
+
+    var status: String {
+        guard let failure = recovery.failure else { return progressStatus }
+        return failure.restoredServer
+            ? "サーバーに保存できなかったため、サーバーの時間割に戻しました（\(failure.reason)）"
+            : "サーバーに保存できませんでした（\(failure.reason)）"
+    }
+    var hasWriteFailure: Bool { recovery.failure != nil }
+    var canDismissWriteFailure: Bool { recovery.failure?.linking == false }
+    var retryingInitialUpload: Bool { !linked && recovery.initialUploadFailed }
+    func dismissWriteFailure() { recovery.dismissFailure() }
 
     var editingBlocked: Bool { conflict != nil || initialUpload }
     var editingReason: String {
@@ -47,7 +61,7 @@ final class FirebaseSync: ObservableObject {
         guard Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil else { return }
         if FirebaseApp.app() == nil { FirebaseApp.configure() }
         configured = true
-        status = "サインインしていないため、時間割は同期されません。"
+        progressStatus = "サインインしていないため、時間割は同期されません。"
         let auth = Auth.auth()
         self.auth = auth
         authHandle = auth.addStateDidChangeListener { [weak self] _, user in
@@ -81,6 +95,8 @@ final class FirebaseSync: ObservableObject {
         guard auth?.currentUser?.uid == user?.uid, uid != user?.uid else { return }
         if let uid { defaults.removeObject(forKey: linkageKey(uid)) }
         generation = UUID() // Late listener/write callbacks from an old session have no effects.
+        recovery = SyncWriteRecovery()
+        snapshotLogGate = SyncSnapshotLogGate()
         listener?.remove()
         listener = nil
         reference = nil
@@ -96,10 +112,10 @@ final class FirebaseSync: ObservableObject {
         signedIn = user != nil
         linked = uid.map { defaults.bool(forKey: linkageKey($0)) } ?? false
         guard let uid else {
-            status = "サインインしていないため、時間割は同期されません。"
+            progressStatus = "サインインしていないため、時間割は同期されません。"
             return
         }
-        status = "サーバーの時間割を確認しています。"
+        progressStatus = "サーバーの時間割を確認しています。"
         let session = generation
         // The default persistent cache is intentionally retained. Metadata events are required
         // to distinguish server confirmation from cached data and pending local writes.
@@ -134,7 +150,7 @@ final class FirebaseSync: ObservableObject {
         } catch {
             self.error = "最終同期時刻を保存できませんでした（\(GroupStore.reason(error))）"
         }
-        status = pendingUploads > 0 ? "サーバーへの保存を待っています。" : "同期済みです。"
+        progressStatus = pendingUploads > 0 ? "サーバーへの保存を待っています。" : "同期済みです。"
     }
 
     private func receive(_ snapshot: DocumentSnapshot) {
@@ -163,28 +179,35 @@ final class FirebaseSync: ObservableObject {
         case .valid: type = same ? "valid same" : "valid changed"
         }
         let description = "sync snapshot fromCache=\(!fromServer) pendingWrites=\(pending) \(type)"
+        func recordSnapshot(_ action: SyncAction, suffix: String = "") {
+            if snapshotLogGate.shouldRecord(fromServer: fromServer, pendingWrites: pending,
+                                            remote: kind, same: same, action: action) {
+                files.record(description + " action=\(action)" + suffix)
+            }
+        }
         if initialUpload {
             deferredSnapshot = snapshot
-            files.record(description + " action=keep awaitingUpload=true")
+            recordSnapshot(.keep, suffix: " awaitingUpload=true")
             return
         }
         let decision = TimetableSyncPolicy.decide(linked: linked, fromServer: fromServer,
-            pendingWrites: pending, remote: kind, hasLocal: local != nil, same: same)
-        files.record(description + " action=\(decision.action)")
+            pendingWrites: pending, remote: kind, hasLocal: local != nil, same: same,
+            initialUploadFailed: recovery.initialUploadFailed)
+        recordSnapshot(decision.action)
         // Cached or pending snapshots must not dismiss an unresolved server conflict.
         if fromServer && !pending {
             conflict = nil
-            canOverwrite = false
+            canOverwrite = !linked && recovery.initialUploadFailed && local != nil
             if case .invalid = kind { invalidServerDocument = true } else { invalidServerDocument = false }
         }
         switch decision.notice {
-        case .waitingForServer: status = "サーバーの時間割を確認しています。接続を待っています。"
-        case .pendingWrites: status = "サーバーへの保存を待っています。"
-        case .missing: status = "サーバーに時間割がありません"
+        case .waitingForServer: progressStatus = "サーバーの時間割を確認しています。接続を待っています。"
+        case .pendingWrites: progressStatus = "サーバーへの保存を待っています。"
+        case .missing: progressStatus = "サーバーに時間割がありません"
         case .invalid(let code):
-            status = "サーバーの時間割を読み込めません（\(code)）"
-            canOverwrite = !linked && fromServer && local != nil
-        case .conflict: status = "使う時間割を選んでください。"
+            progressStatus = "サーバーの時間割を読み込めません（\(code)）"
+            canOverwrite = !linked && local != nil && (fromServer || recovery.initialUploadFailed)
+        case .conflict: progressStatus = "使う時間割を選んでください。"
         case nil: break
         }
         switch decision.action {
@@ -196,10 +219,10 @@ final class FirebaseSync: ObservableObject {
         case .adopt:
             guard let remote, adopt(remote) else { return }
             if !linked { markLinked() }
-            if !fromServer { status = "キャッシュの時間割を使っています。サーバーの確認を待っています。" }
+            if !fromServer { progressStatus = "キャッシュの時間割を使っています。サーバーの確認を待っています。" }
         }
         if decision.action == .markLinked && !decision.confirmSync {
-            status = "ひも付け済みです。時間割の保存を待っています。"
+            progressStatus = "ひも付け済みです。時間割の保存を待っています。"
         }
         if decision.confirmSync { error = nil; confirmed() }
     }
@@ -207,6 +230,7 @@ final class FirebaseSync: ObservableObject {
     private func adopt(_ document: LocalTimetable) -> Bool {
         do {
             try adoptLocal(document)
+            recovery.adoptedServer()
             files.record("sync action=adopt")
             return true
         } catch {
@@ -218,7 +242,12 @@ final class FirebaseSync: ObservableObject {
 
     func useServer() {
         guard !initialUpload, let conflict else { return }
-        if adopt(conflict) { markLinked(); error = nil; confirmed() }
+        if adopt(conflict) {
+            recovery.choseServer()
+            markLinked()
+            error = nil
+            confirmed()
+        }
     }
 
     func useLocal() {
@@ -229,7 +258,7 @@ final class FirebaseSync: ObservableObject {
     func localSaved(_ document: LocalTimetable) {
         if linked && signedIn {
             upload(document, linking: false)
-        } else if signedIn && invalidServerDocument {
+        } else if signedIn && (invalidServerDocument || recovery.initialUploadFailed) {
             // A valid local timetable may have been created after the invalid server snapshot.
             canOverwrite = true
         }
@@ -244,11 +273,12 @@ final class FirebaseSync: ObservableObject {
         let session = generation
         writeSequence += 1
         let sequence = writeSequence
+        recovery.started(sequence: sequence, linking: linking)
         pendingUploads += 1
         initialUpload = linking
         deferredSnapshot = nil
         error = nil
-        status = "サーバーへの保存を待っています。"
+        progressStatus = "サーバーへの保存を待っています。"
         files.record("sync action=upload")
         reference.setData(fields) { [weak self] failure in
             Task { @MainActor [weak self] in
@@ -256,13 +286,14 @@ final class FirebaseSync: ObservableObject {
                 self.pendingUploads -= 1
                 if linking { self.initialUpload = false }
                 if let failure {
+                    self.recovery.failed(sequence: sequence, reason: GroupStore.reason(failure))
                     self.files.record("sync writeFailure action=keep reason=\(GroupStore.reason(failure))")
                     if sequence == self.writeSequence {
-                        self.error = "サーバーに保存できませんでした（\(GroupStore.reason(failure))）"
-                        self.status = "端末の時間割を使い続けています。"
+                        self.progressStatus = "端末の時間割を使い続けています。"
                         self.canOverwrite = linking && self.readLocal() != nil
                     }
                 } else {
+                    self.recovery.succeeded(sequence: sequence)
                     self.files.record("sync writeSuccess")
                     if linking { self.markLinked() }
                     if sequence == self.writeSequence { self.error = nil }
