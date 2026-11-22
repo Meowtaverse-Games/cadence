@@ -37,13 +37,13 @@ struct CadenceApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
-                .onAppear { model.refresh("本体の再登録/起動") }
-                .onChange(of: phase) { value in
-                    if value == .active { model.refresh("本体の再登録/前面") }
-                    if value == .background { AppDelegate.scheduleRefresh() }
+                .task(id: phase) {
+                    // Runs for the initial active scene too; no duplicate onAppear registration.
+                    if phase == .active { model.scheduleRefresh("本体の再登録/起動・前面") }
+                    if phase == .background { AppDelegate.scheduleRefresh() }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
-                    model.refresh("本体の再登録/タイムゾーン変更")
+                    model.scheduleRefresh("本体の再登録/タイムゾーン変更")
                 }
         }
     }

@@ -13,6 +13,7 @@ struct ActivityRecord: Codable {
 struct GroupStore {
     static let group = "group.com.meowtaverse-games.cadence"
     let category: String
+    var diagnostics: ((String) -> Void)? = nil
 
     private func url(_ name: String) throws -> URL {
         guard let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.group) else {
@@ -80,6 +81,10 @@ struct GroupStore {
         try write(Dictionary(uniqueKeysWithValues: recent.map { ($0.key, $0.value) }), file: "activity-history.json")
     }
 
+    func registrationTimeZone() -> String? { read("registration-time-zone.json", as: String.self) }
+    // Persist before stopMonitoring, so callbacks caused by the reset don't repeat it.
+    func saveRegistrationTimeZone(_ identifier: String) throws { try write(identifier, file: "registration-time-zone.json") }
+
     func registrationErrors() -> [String] { read("registration-errors.json", as: [String].self) ?? [] }
     // Called under the runtime lock.
     func saveErrors(_ errors: [String]) throws { try write(errors, file: "registration-errors.json") }
@@ -106,7 +111,9 @@ struct GroupStore {
     }
 
     func record(_ message: String) {
-        let line = "\(Self.timestamp(Date())) [\(category)] timezone=\(TimeZone.current.identifier) \(message)"
+        if let diagnostics { diagnostics(message); return }
+        let bounded = String(message.prefix(4096))
+        let line = "\(Self.timestamp(Date())) [\(category)] timezone=\(TimeZone.current.identifier) \(bounded)"
         let logger = Logger(subsystem: "com.meowtaverse-games.cadence", category: category)
         logger.notice("\(line, privacy: .public)")
         do {

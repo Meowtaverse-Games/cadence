@@ -14,7 +14,6 @@ final class ShieldExtension: ShieldConfigurationDataSource {
         formatter.locale = .current
         formatter.timeZone = .current
         formatter.dateFormat = "HH:mm"
-        files.record("event=shieldConfiguration received=\(GroupStore.timestamp(now)) evaluation=\(GroupStore.timestamp(now)) decision=変えない blocked=\(blocked) release=\(end.map(GroupStore.timestamp) ?? "none")")
         return ShieldConfiguration(
             backgroundBlurStyle: .systemMaterial,
             backgroundColor: .systemBackground,

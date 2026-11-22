@@ -12,10 +12,11 @@ struct ContentView: View {
         NavigationStack {
             List {
                 Section("今の状態") {
-                    Text(model.blocked ? "ブロック中" : "自由時間")
+                    Text(model.inactiveReason != nil ? "ブロックしていません" : model.blocked ? "ブロック中" : "自由時間")
+                    if let reason = model.inactiveReason { Text(reason).font(.footnote) }
                     if let next = model.next {
                         Text("次の切り替え: \(next.formatted(date: .abbreviated, time: .shortened))")
-                    } else { Text("次の切り替えはありません") }
+                    } else if model.inactiveReason == nil { Text("次の切り替えはありません") }
                     Text("登録中の activity: \(model.activityCount) / 8")
                     Text("Screen Time: \(authorizationText)")
                     if model.authorization != .approved {

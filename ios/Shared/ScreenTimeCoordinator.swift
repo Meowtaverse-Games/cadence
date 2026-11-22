@@ -6,7 +6,6 @@ import ManagedSettings
 
 struct ScreenTimeCoordinator {
     let category: String
-    private var files: GroupStore { GroupStore(category: category) }
     private let center = DeviceActivityCenter()
     private let settings = ManagedSettingsStore(named: .init("cadence"))
 
@@ -14,7 +13,7 @@ struct ScreenTimeCoordinator {
     static let useExplicitTokyoTimeZone = false
     private func components(_ date: Date) -> DateComponents {
         var calendar = Calendar.current
-        if Self.useExplicitTokyoTimeZone { calendar.timeZone = TimeZone(secondsFromGMT: 9 * 3600)! }
+        if Self.useExplicitTokyoTimeZone { calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")! }
         var value = ActivityPlanner.components(for: date, calendar: calendar)
         if Self.useExplicitTokyoTimeZone { value.timeZone = calendar.timeZone }
         return value
@@ -22,27 +21,36 @@ struct ScreenTimeCoordinator {
 
     func refresh(event: String, activity: DeviceActivityName? = nil, didStart: Bool = false, reset: Bool = false) {
         let received = Date()
+        var diagnostics: [String] = []
+        let files = GroupStore(category: category, diagnostics: { diagnostics.append($0) })
+        defer { GroupStore(category: category).record(diagnostics.joined(separator: " | ")) }
         do {
             try files.locked("runtime") {
                 let timetable = files.timetable()?.1
                 let selection = files.selection()
                 let start = activity.flatMap { ActivityPlanner.start(for: $0.rawValue) }
                 let evaluation = ActivityPlanner.evaluationTime(now: received, intervalDidStart: didStart, activityStart: start)
-                let authorized = AuthorizationCenter.shared.authorizationStatus == .approved
+                let authorization = AuthorizationCenter.shared.authorizationStatus
+                let authorized = authorization == .approved
+                let permitted = MonitoringPolicy.permitsMonitoring(isApp: category == "app", authorized: authorized)
+                let authorizationAction = permitted ? "evaluateTimetable" : "clearShieldAndStopMonitoring"
                 let hasSelection = selection.map {
                     !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty || !$0.webDomainTokens.isEmpty
                 } ?? false
-                let blocked = authorized && hasSelection && ActivityPlanner.isBlocked(timetable, at: evaluation)
+                let blocked = permitted && hasSelection && ActivityPlanner.isBlocked(timetable, at: evaluation)
                 // Always apply the desired state, even if monitoring fails or a callback repeats.
                 let applications = blocked ? selection?.applicationTokens : nil
                 let domains = blocked ? selection?.webDomainTokens : nil
                 let categories: ShieldSettings.ActivityCategoryPolicy<Application>? = blocked
                     ? .specific(selection?.categoryTokens ?? []) : nil
+                let webCategories: ShieldSettings.ActivityCategoryPolicy<WebDomain>? = blocked
+                    ? .specific(selection?.categoryTokens ?? []) : nil
                 let unchanged = settings.shield.applications == applications && settings.shield.webDomains == domains
-                    && settings.shield.applicationCategories == categories
+                    && settings.shield.applicationCategories == categories && settings.shield.webDomainCategories == webCategories
                 settings.shield.applications = applications
                 settings.shield.applicationCategories = categories
                 settings.shield.webDomains = domains
+                settings.shield.webDomainCategories = webCategories
 
                 var history = files.activityHistory()
                 var eventInterval = activity.flatMap { history[$0.rawValue] }
@@ -53,15 +61,24 @@ struct ScreenTimeCoordinator {
                 }
                 let scheduleText = eventInterval.map { GroupStore.timestamp($0.start) } ?? start.map(GroupStore.timestamp) ?? "none"
                 let endText = eventInterval.map { GroupStore.timestamp($0.end) } ?? "none"
-                files.record("event=\(event) activity=\(activity?.rawValue ?? "none") scheduledStart=\(scheduleText) scheduledEnd=\(endText) received=\(GroupStore.timestamp(received)) evaluation=\(GroupStore.timestamp(evaluation)) decision=\(unchanged ? "変えない" : blocked ? "かけた" : "外した") blocked=\(blocked) authorized=\(authorized) selectionCounts=\(selection?.applicationTokens.count ?? 0)/\(selection?.categoryTokens.count ?? 0)/\(selection?.webDomainTokens.count ?? 0)")
+                files.record("event=\(event) activity=\(activity?.rawValue ?? "none") scheduledStart=\(scheduleText) scheduledEnd=\(endText) received=\(GroupStore.timestamp(received)) evaluation=\(GroupStore.timestamp(evaluation)) decision=\(unchanged ? "変えない" : blocked ? "かけた" : "外した") blocked=\(blocked) authorized=\(authorized) authorizationStatus=\(String(describing: authorization)) authorizationAction=\(authorizationAction) selectionCounts=\(selection?.applicationTokens.count ?? 0)/\(selection?.categoryTokens.count ?? 0)/\(selection?.webDomainTokens.count ?? 0)")
 
                 var errors: [String] = []
                 let plan = try timetable.map { try ActivityPlanner.plan($0, now: evaluation) } ?? []
-                let canMonitor = authorized && timetable != nil && hasSelection
+                let canMonitor = permitted && timetable != nil && hasSelection
                 let desired = canMonitor ? Set(plan.map { DeviceActivityName($0.name) } + [DeviceActivityName(ActivityPlanner.watchdogName)]) : []
                 for item in plan { history[item.name] = ActivityRecord(start: item.interval.start, end: item.interval.end) }
                 try files.saveHistory(history)
-                if reset { center.stopMonitoring() }
+                let registeredZone = files.registrationTimeZone()
+                let currentZone = TimeZone.current.identifier
+                let zoneChanged = MonitoringPolicy.needsTimeZoneReset(registered: registeredZone, current: currentZone)
+                if reset || zoneChanged {
+                    try files.saveRegistrationTimeZone(currentZone)
+                    center.stopMonitoring()
+                }
+                if zoneChanged {
+                    files.record("timeZoneReset previous=\(registeredZone ?? "none") current=\(currentZone) action=stopAllAndRegister")
+                }
                 let obsolete = center.activities.filter { !desired.contains($0) }
                 if !obsolete.isEmpty { center.stopMonitoring(obsolete) }
 
@@ -86,7 +103,8 @@ struct ScreenTimeCoordinator {
                 }
                 try files.saveErrors(errors)
                 let names = center.activities.map(\.rawValue).sorted()
-                files.record("registered count=\(names.count) names=\(names.joined(separator: ",")) plan=\(plan.map { "\($0.name)[\(GroupStore.timestamp($0.interval.start)),\(GroupStore.timestamp($0.interval.end)))" }.joined(separator: ","))")
+                let blockNames = names.filter { $0 != ActivityPlanner.watchdogName }
+                files.record("registered count=\(names.count) first=\(blockNames.first ?? "none") last=\(blockNames.last ?? "none") watchdog=\(names.contains(ActivityPlanner.watchdogName)) plannedCount=\(plan.count) plannedLastEnd=\(plan.last.map { GroupStore.timestamp($0.interval.end) } ?? "none")")
             }
         } catch {
             let reason = "更新失敗: \(GroupStore.reason(error))"
