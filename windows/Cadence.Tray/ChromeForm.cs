@@ -175,10 +175,10 @@ internal sealed class CaptionButton : Button
         var scale = DeviceDpi / 96f;
         e.Graphics.TranslateTransform(Width / 2f - 6 * scale, Height / 2f - 6 * scale);
         e.Graphics.ScaleTransform(scale, scale);
-        using var pen = new Pen(Hot && (kind == 2 || DesignTheme.HighContrast) ? Color.White : DesignTheme.Muted, 1);
+        using var pen = new Pen(Hot && DesignTheme.HighContrast ? SystemColors.HighlightText : Hot && kind == 2 ? Color.White : DesignTheme.Muted, 1);
         if (kind == 0) e.Graphics.DrawLine(pen, 1, 6, 11, 6);
         else if (kind == 2) { e.Graphics.DrawLine(pen, 1.5f, 1.5f, 10.5f, 10.5f); e.Graphics.DrawLine(pen, 10.5f, 1.5f, 1.5f, 10.5f); }
-        else if (Restore) { e.Graphics.DrawLines(pen, [new(4, 3), new(4, 1), new(11, 1), new(11, 8), new(9, 8)]); e.Graphics.DrawRectangle(pen, 1, 4, 7, 7); }
+        else if (Restore) { e.Graphics.DrawLines(pen, new PointF[] { new(4, 3), new(4, 1), new(11, 1), new(11, 8), new(9, 8) }); e.Graphics.DrawRectangle(pen, 1, 4, 7, 7); }
         else e.Graphics.DrawRectangle(pen, 1.5f, 1.5f, 9, 9);
         e.Graphics.ResetTransform();
         if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4));

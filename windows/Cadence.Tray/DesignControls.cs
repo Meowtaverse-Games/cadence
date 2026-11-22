@@ -41,13 +41,17 @@ internal class RoundButton : Button
     public bool Selected { get; set; }
     public bool Border { get; set; } = true;
     public bool Navigation { get; set; }
+    public int IconKind { get; set; } = -1;
     private bool hot;
     public RoundButton() { SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true); }
     protected override void OnMouseEnter(EventArgs e) { hot = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { hot = false; Invalidate(); base.OnMouseLeave(e); }
-    protected override AccessibleObject CreateAccessibilityInstance() => new SelectionAccessibleObject(this);
-    private sealed class SelectionAccessibleObject(RoundButton owner) : ButtonAccessibleObject(owner)
+    protected override AccessibleObject CreateAccessibilityInstance() => Navigation ? new SelectionAccessibleObject(this) : base.CreateAccessibilityInstance();
+    private sealed class SelectionAccessibleObject(RoundButton owner) : ControlAccessibleObject(owner)
     {
+        public override AccessibleRole Role => AccessibleRole.PushButton;
+        public override string DefaultAction => "選択";
+        public override void DoDefaultAction() => owner.PerformClick();
         public override AccessibleStates State => base.State | (owner.Selected ? AccessibleStates.Selected : 0);
     }
     protected override void OnPaint(PaintEventArgs e)
@@ -60,7 +64,26 @@ internal class RoundButton : Button
         using var brush = new SolidBrush(fill);
         e.Graphics.FillPath(brush, path);
         if (Border && !Primary) { using var pen = new Pen(DesignTheme.Line); e.Graphics.DrawPath(pen, path); }
-        TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(ClientRectangle, -10, -2), text,
+        var textBounds = Rectangle.Inflate(ClientRectangle, -10, -2);
+        if (Navigation)
+        {
+            var s = DeviceDpi / 96f;
+            e.Graphics.TranslateTransform(14 * s, Height / 2f - 10 * s);
+            e.Graphics.ScaleTransform(20 * s / 24, 20 * s / 24);
+            using var iconPen = new Pen(text, 1.7f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            if (IconKind == 0) e.Graphics.DrawLines(iconPen, new PointF[] { new(3, 10), new(12, 3), new(21, 10), new(21, 21), new(15, 21), new(15, 15), new(9, 15), new(9, 21), new(3, 21), new(3, 10) });
+            if (IconKind == 1)
+            {
+                using var shield = new GraphicsPath(); shield.AddLines(new PointF[] { new(12, 3), new(20, 6), new(20, 12) });
+                shield.AddBezier(20, 12, 20, 17, 16, 20, 12, 21); shield.AddBezier(12, 21, 8, 20, 4, 17, 4, 12); shield.AddLine(4, 12, 4, 6); shield.CloseFigure();
+                e.Graphics.DrawPath(iconPen, shield); e.Graphics.DrawLines(iconPen, new PointF[] { new(9, 12), new(11, 14), new(15, 10) });
+            }
+            if (IconKind == 2) { e.Graphics.DrawEllipse(iconPen, 8, 3, 8, 8); e.Graphics.DrawBezier(iconPen, 4, 21, 6, 13, 18, 13, 20, 21); }
+            if (IconKind == 3) for (var i = 0; i < 3; i++) { var y = 6 + i * 6; var x = i == 0 ? 16 : i == 1 ? 10 : 18; e.Graphics.DrawLine(iconPen, 4, y, 20, y); e.Graphics.DrawLine(iconPen, x, y - 3, x, y + 3); }
+            e.Graphics.ResetTransform();
+            textBounds.X += (int)(38 * s); textBounds.Width -= (int)(38 * s);
+        }
+        TextRenderer.DrawText(e.Graphics, Text, Font, textBounds, text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | (Navigation ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter));
         if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -5, -5), text, fill);
     }

@@ -87,11 +87,11 @@ internal sealed class SettingsForm : ChromeForm
         statusRow.Controls.AddRange([pillSurface, subtitle]);
         statusRow.Layout += (_, _) => { pillSurface.SetBounds(0, 0, ScalePixel(100), ScalePixel(30)); subtitle.SetBounds(ScalePixel(112), 0, statusRow.Width - ScalePixel(112), statusRow.Height); };
         sidebar.Paint += PaintSidebar;
-        string[] names = ["⌂   ホーム", "◇   ブロックするアプリ", "○   アカウント", "☷   接続と詳細"];
+        string[] names = ["ホーム", "ブロックするアプリ", "アカウント", "接続と詳細"];
         for (var i = 0; i < navigation.Length; i++)
         {
             var index = i; var button = navigation[i];
-            button.Text = names[i]; button.AccessibleName = names[i][4..]; button.Navigation = true; button.Border = false;
+            button.Text = names[i]; button.AccessibleName = names[i]; button.IconKind = i; button.Navigation = true; button.Border = false;
             button.Click += (_, _) => SelectPage(index);
             button.PreviewKeyDown += (_, e) => { if (e.KeyCode is Keys.Up or Keys.Down) e.IsInputKey = true; };
             button.KeyDown += (_, e) =>
@@ -290,6 +290,11 @@ internal sealed class SettingsForm : ChromeForm
         foreach (var nav in navigation) nav.BackColor = sidebar.BackColor;
         foreach (var input in new[] { emailInput, passwordInput, executable.Parent! })
         { input.BackColor = DesignTheme.Ground; if (input is RoundPanel round) round.Fill = DesignTheme.Surface; foreach (Control child in input.Controls) { child.BackColor = DesignTheme.Surface; if (child is TextBox text) text.BorderStyle = BorderStyle.None; } }
+        foreach (Control row in list.Controls)
+        {
+            if (row is RoundPanel rounded) rounded.Fill = DesignTheme.Ground;
+            foreach (Control child in row.Controls) child.BackColor = DesignTheme.Ground;
+        }
         card.Fill = DesignTheme.Surface; foreach (Control child in card.Controls) child.BackColor = DesignTheme.Surface;
         subtitle.ForeColor = windowSummary.ForeColor = connection.ForeColor = DesignTheme.Muted;
         error.ForeColor = problem.ForeColor = DesignTheme.Alert;
