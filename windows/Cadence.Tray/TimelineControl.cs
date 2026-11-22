@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using Cadence.Tray.Logic;
 
 namespace Cadence.Tray;
@@ -20,7 +21,7 @@ internal sealed class TimelineControl : Control
             $"{Time(value.Start)} から {Time(value.End)}。斜線は集中、無地は自由。";
         Invalidate();
     }
-    private static string Time(DateTimeOffset at) => at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm");
+    private static string Time(DateTimeOffset at) => at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture);
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);

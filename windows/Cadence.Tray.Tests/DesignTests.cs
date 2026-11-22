@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using Cadence.Core;
 using Cadence.Tray.Logic;
 using Xunit;
@@ -19,6 +20,29 @@ public sealed class DesignTests
         }
         Assert.Equal(TrayState.Focus, TrayPresentation.Evaluate(true, true, false, false, false));
         Assert.Equal(TrayState.Free, TrayPresentation.Evaluate(true, false, false, false, false));
+    }
+
+    [Theory]
+    [InlineData(false, false, false, "NO CONFIG", true)]
+    [InlineData(false, true, false, "NO CONFIG", true)]
+    [InlineData(false, true, true, "NO CONFIG", true)]
+    [InlineData(true, false, false, "WAITING", false)]
+    [InlineData(true, false, true, "ALERT", true)]
+    [InlineData(true, true, true, "ALERT", true)]
+    [InlineData(true, true, false, "OK", false)]
+    public void SyncSummaryRequiresConfigurationAndSuccessfulSync(bool configured, bool synced, bool problem,
+        string expected, bool expectedProblem)
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fi-FI");
+            var at = DateTimeOffset.Parse("2026-01-05T11:30:00Z", CultureInfo.InvariantCulture);
+            var summary = TrayPresentation.Synchronization(configured, synced ? at : null, problem);
+            Assert.Equal("SYNC " + (synced ? "20:30" : "--:--") + " · " + expected, summary.Text);
+            Assert.Equal(expectedProblem, summary.IsProblem);
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
     }
 
     [Fact]

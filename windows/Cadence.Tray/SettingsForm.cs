@@ -3,8 +3,8 @@ using Cadence.Tray.Logic;
 
 namespace Cadence.Tray;
 
-internal sealed record SettingsSnapshot(TrayState State, string Status, string Sync, string? Email,
-    bool Configured, string Connection, string Problem, TodayTimeline? Timeline);
+internal sealed record SettingsSnapshot(TrayState State, string Status, SyncSummary Sync, string? Email,
+    bool Configured, string Connection, string Problem, TodayTimeline? Timeline, bool ConfigurationUsable = true);
 
 internal sealed class SettingsForm : Form
 {
@@ -21,6 +21,14 @@ internal sealed class SettingsForm : Form
     private readonly Button reload = Button("接続設定を読み直す");
     private readonly Label account = Label("");
     private string syncSummary = "";
+    private bool syncProblem;
+    private bool? configurationUsable;
+    private readonly Label emailHeading = Label("メールアドレス");
+    private readonly Label passwordHeading = Label("パスワード");
+    private readonly Label executableHeading = Label("追加する exe 名");
+    private readonly Label readOnlyNotice = Label("時間割は iPhone で編集します（この PC は読み取り専用）");
+    private readonly Button expand = Button("接続と詳細 ▸");
+    private readonly Panel scroll = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(24) };
     private readonly Label problem = Label("");
     private readonly Label error = Label("");
     private readonly TextBox email = new() { Dock = DockStyle.Top, PlaceholderText = "メールアドレス", AccessibleName = "メールアドレス" };
@@ -60,12 +68,29 @@ internal sealed class SettingsForm : Form
         MinimumSize = new Size(560, 420);
         StartPosition = FormStartPosition.CenterScreen;
         Icon = MarkRenderer.Icon(48, null);
-        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(24) };
         Controls.Add(scroll);
+        root.Dock = DockStyle.None;
+        root.AutoSize = false;
         root.Location = new Point(24, 24);
         root.MinimumSize = new Size(640, 0);
         scroll.Controls.Add(root);
-        scroll.Layout += (_, _) => root.Width = Math.Max(root.MinimumSize.Width, scroll.ClientSize.Width - scroll.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
+        var arranging = false;
+        void LayoutContent()
+        {
+            if (arranging) return;
+            arranging = true;
+            try
+            {
+                var width = Math.Max(root.MinimumSize.Width,
+                    scroll.ClientSize.Width - scroll.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
+                root.Width = width;
+                root.Height = root.GetPreferredSize(new Size(width, 0)).Height;
+                scroll.AutoScrollMinSize = new Size(width + scroll.Padding.Horizontal, root.Height + scroll.Padding.Vertical);
+            }
+            finally { arranging = false; }
+        }
+        scroll.Layout += (_, _) => LayoutContent();
+        root.Layout += (_, _) => LayoutContent();
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
         tag.Font = theme.Tag;
@@ -80,7 +105,7 @@ internal sealed class SettingsForm : Form
             // Keep the summary in the top row and reserve the full next row for Japanese.
             var scale = DeviceDpi / 96f;
             using var font = new Font(theme.Mono.FontFamily, theme.Mono.SizeInPoints * DeviceDpi / 72f, GraphicsUnit.Pixel);
-            using var brush = new SolidBrush(DesignTheme.Muted);
+            using var brush = new SolidBrush(syncProblem ? DesignTheme.Alert : DesignTheme.Muted);
             using var format = new StringFormat { Alignment = StringAlignment.Far };
             e.Graphics.DrawString(syncSummary, font, brush,
                 new RectangleF(statusCard.Width / 2f, 20 * scale,
@@ -108,16 +133,17 @@ internal sealed class SettingsForm : Form
         inputRow.Controls.Add(add, 1, 0);
         executable.Dock = DockStyle.Top;
         executable.Font = theme.Mono;
+        left.Controls.Add(executableHeading);
         left.Controls.Add(inputRow);
         var running = Button("実行中のプロセスから選ぶ…");
         left.Controls.Add(running);
         right.Controls.Add(Label("アカウントと起動", theme.Tag));
         account.Font = theme.Mono;
-        right.Controls.AddRange([account, Label("時間割は iPhone で編集します（この PC は読み取り専用）"), email, password, signIn, signOut, startup, timeline]);
+        right.Controls.AddRange([account, readOnlyNotice, emailHeading, email, passwordHeading, password, signIn, signOut, startup, timeline]);
+        emailHeading.Font = passwordHeading.Font = executableHeading.Font = theme.Caption;
         email.Font = theme.Mono;
         timeline.Font = theme.Mono;
-        var expand = Button("接続と詳細 ▸");
-        expand.Click += (_, _) => { details.Visible = !details.Visible; expand.Text = details.Visible ? "接続と詳細 ▾" : "接続と詳細 ▸"; };
+        expand.Click += (_, _) => SetDetailsVisible(!details.Visible);
         error.Visible = false;
         error.TextChanged += (_, _) => error.Visible = error.Text.Length > 0;
         root.Controls.AddRange([error, expand, details]);
@@ -160,14 +186,18 @@ internal sealed class SettingsForm : Form
         displayState = snapshot.State;
         tag.Text = string.Join(" ", snapshot.State.ToString().ToUpperInvariant().ToCharArray());
         status.Text = snapshot.Status;
-        syncSummary = snapshot.Sync;
+        syncSummary = snapshot.Sync.Text;
+        syncProblem = snapshot.Sync.IsProblem;
         statusCard.AccessibleName = "今の状態";
-        statusCard.AccessibleDescription = snapshot.Status + "。" + snapshot.Sync;
+        statusCard.AccessibleDescription = snapshot.Status + "。" + snapshot.Sync.Text;
         connection.Text = snapshot.Connection;
+        if (!snapshot.ConfigurationUsable && configurationUsable != false) SetDetailsVisible(true);
+        configurationUsable = snapshot.ConfigurationUsable;
         problem.Text = snapshot.Problem;
         problem.Visible = problem.Text.Length > 0;
         account.Text = snapshot.Email is { } signedIn ? "サインイン中\n" + signedIn : "サインインしていません";
-        email.Visible = password.Visible = signIn.Visible = snapshot.Email is null;
+        emailHeading.Visible = passwordHeading.Visible = email.Visible = password.Visible = signIn.Visible = snapshot.Email is null;
+        readOnlyNotice.Visible = snapshot.Email is not null;
         signOut.Visible = snapshot.Email is not null;
         signIn.Enabled = !busy && snapshot.Configured;
         signOut.Enabled = !busy && snapshot.Email is not null;
@@ -176,6 +206,22 @@ internal sealed class SettingsForm : Form
         if (highContrast != DesignTheme.HighContrast) { highContrast = DesignTheme.HighContrast; ApplyTheme(); }
         tag.ForeColor = DesignTheme.StateColor(snapshot.State);
         statusCard.Invalidate();
+    }
+
+    private void SetDetailsVisible(bool visible)
+    {
+        details.Visible = visible;
+        expand.Text = visible ? "接続と詳細 ▾" : "接続と詳細 ▸";
+    }
+
+    internal void ScrollPreviewToRightEdge()
+    {
+        PerformLayout();
+        scroll.PerformLayout();
+        if (!scroll.HorizontalScroll.Visible) throw new InvalidOperationException("Minimum-size preview requires horizontal scrolling.");
+        scroll.AutoScrollPosition = new Point(scroll.HorizontalScroll.Maximum, 0);
+        if (scroll.HorizontalScroll.Value == 0 || root.Right > scroll.ClientSize.Width - scroll.Padding.Right)
+            throw new InvalidOperationException("The right edge of the settings content is unreachable.");
     }
 
     internal static SettingsForm Preview(SettingsSnapshot snapshot)
@@ -202,8 +248,12 @@ internal sealed class SettingsForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { Icon?.Dispose(); theme.Dispose(); }
-        base.Dispose(disposing);
+        try
+        {
+            if (disposing) Icon?.Dispose();
+            base.Dispose(disposing);
+        }
+        finally { if (disposing) theme.Dispose(); }
     }
 
     private void ApplyTheme()
@@ -229,6 +279,7 @@ internal sealed class SettingsForm : Form
         }
         tag.ForeColor = DesignTheme.StateColor(displayState);
         connection.ForeColor = DesignTheme.Muted;
+        emailHeading.ForeColor = passwordHeading.ForeColor = executableHeading.ForeColor = DesignTheme.Muted;
         error.ForeColor = problem.ForeColor = DesignTheme.Alert;
     }
 

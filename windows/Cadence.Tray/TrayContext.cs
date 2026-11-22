@@ -127,9 +127,9 @@ internal sealed class TrayContext : ApplicationContext
             : "自由時間" + (block.NextChange is null ? "" : " · 次は " + next[2..] + " から");
         var syncProblem = service.AuthProblem ?? service.State.Problem ?? service.StorageProblem;
         settings?.RefreshStatus(new(visualState, summary,
-            "SYNC " + (service.State.LastSync is { } at ? at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm") : "--:--")
-                + (syncProblem is null ? " · OK" : " · ALERT"), service.Email, service.Configured, configuration.Message,
-            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow())));
+            TrayPresentation.Synchronization(configuration.Usable, service.State.LastSync, syncProblem is not null),
+            service.Email, service.Configured, configuration.Message,
+            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow()), configuration.Usable));
         if (service.TakeAuthNotification()) Notify("サインインが必要です", "設定画面でサインインしてください。保存済みの時間割でブロックを続けます。", true);
     }
 

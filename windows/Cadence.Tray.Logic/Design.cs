@@ -6,10 +6,20 @@ namespace Cadence.Tray.Logic;
 
 public enum TrayState { Focus, Free, Alert }
 
+public sealed record SyncSummary(string Text, bool IsProblem);
+
 public static class TrayPresentation
 {
     public static TrayState Evaluate(bool hasTimetable, bool blocked, bool authProblem, bool syncProblem, bool storageProblem) =>
         !hasTimetable || authProblem || syncProblem || storageProblem ? TrayState.Alert : blocked ? TrayState.Focus : TrayState.Free;
+
+    public static SyncSummary Synchronization(bool configurationUsable, DateTimeOffset? lastSync, bool hasProblem)
+    {
+        var time = lastSync is { } at
+            ? at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture) : "--:--";
+        var state = !configurationUsable ? "NO CONFIG" : hasProblem ? "ALERT" : lastSync is null ? "WAITING" : "OK";
+        return new($"SYNC {time} · {state}", !configurationUsable || hasProblem);
+    }
 }
 
 public sealed record MarkArc(double Start, double Sweep, bool Focus);

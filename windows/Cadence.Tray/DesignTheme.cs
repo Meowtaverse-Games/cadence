@@ -18,6 +18,7 @@ internal sealed class DesignTheme : IDisposable
     public static Color StateColor(TrayState state) => state switch { TrayState.Focus => Focus, TrayState.Free => Free, _ => Alert };
 
     public Font Body { get; } = InstalledFont("Yu Gothic UI", "Segoe UI", 10);
+    public Font Caption { get; } = InstalledFont("Yu Gothic UI", "Segoe UI", 9);
     public Font Mono { get; } = InstalledFont("Cascadia Mono", "Consolas", 9);
     public Font Tag { get; } = InstalledFont("Segoe UI Semibold", "Segoe UI", 9);
     public Font Heading { get; } = InstalledFont("Yu Gothic UI", "Segoe UI", 15);
@@ -64,7 +65,7 @@ internal sealed class DesignTheme : IDisposable
         _ = SetWindowTheme(control.Handle, HighContrast ? null : "DarkMode_Explorer", null);
     }
 
-    public void Dispose() { Body.Dispose(); Mono.Dispose(); Tag.Dispose(); Heading.Dispose(); }
+    public void Dispose() { Body.Dispose(); Caption.Dispose(); Mono.Dispose(); Tag.Dispose(); Heading.Dispose(); }
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
