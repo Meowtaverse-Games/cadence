@@ -9,44 +9,48 @@ internal static class MarkRenderer
     public static Bitmap Draw(int size, TrayState? state)
     {
         var bitmap = new Bitmap(size, size);
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        var geometry = state is { } value ? CadenceMark.Tray(value) : CadenceMark.App;
-        graphics.ScaleTransform(size / (float)geometry.ViewBox, size / (float)geometry.ViewBox);
-        using var ground = new SolidBrush(DesignTheme.Ground);
-        if (state is null) graphics.FillRectangle(ground, 0, 0, 100, 100);
-        else
+        try
         {
-            using var plate = Rounded(new(1, 1, 30, 30), 7);
-            graphics.FillPath(ground, plate);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            var geometry = state is { } value ? CadenceMark.Tray(value) : CadenceMark.App;
+            graphics.ScaleTransform(size / (float)geometry.ViewBox, size / (float)geometry.ViewBox);
+            using var ground = new SolidBrush(DesignTheme.Ground);
+            if (state is null) graphics.FillRectangle(ground, 0, 0, 100, 100);
+            else
+            {
+                using var plate = Rounded(new(1, 1, 30, 30), 7);
+                graphics.FillPath(ground, plate);
+            }
+            var center = (float)geometry.Center;
+            var radius = (float)geometry.Radius;
+            var bounds = new RectangleF(center - radius, center - radius, radius * 2, radius * 2);
+            if (state is null)
+            {
+                using var basePen = new Pen(DesignTheme.Surface2, (float)geometry.Stroke);
+                graphics.DrawEllipse(basePen, bounds);
+            }
+            foreach (var arc in geometry.Arcs)
+            {
+                var color = state is { } trayState ? DesignTheme.StateColor(trayState) : arc.Focus ? DesignTheme.Focus : DesignTheme.Free;
+                using var pen = new Pen(color, (float)geometry.Stroke) { StartCap = LineCap.Flat, EndCap = LineCap.Flat };
+                graphics.DrawArc(pen, bounds, (float)arc.Start, (float)arc.Sweep);
+            }
+            graphics.TranslateTransform(center, center);
+            graphics.RotateTransform(45);
+            var side = (float)geometry.DiamondSize;
+            using var diamond = Rounded(new(-side / 2, -side / 2, side, side), (float)geometry.DiamondRadius);
+            using var core = new SolidBrush(state is null ? DesignTheme.Text : state == TrayState.Free ? DesignTheme.Ground : DesignTheme.StateColor(state.Value));
+            graphics.FillPath(core, diamond);
+            if (geometry.DiamondStroke > 0)
+            {
+                using var outline = new Pen(DesignTheme.Free, (float)geometry.DiamondStroke);
+                graphics.DrawPath(outline, diamond);
+            }
+            return bitmap;
         }
-        var center = (float)geometry.Center;
-        var radius = (float)geometry.Radius;
-        var bounds = new RectangleF(center - radius, center - radius, radius * 2, radius * 2);
-        if (state is null)
-        {
-            using var basePen = new Pen(DesignTheme.Surface2, (float)geometry.Stroke);
-            graphics.DrawEllipse(basePen, bounds);
-        }
-        foreach (var arc in geometry.Arcs)
-        {
-            var color = state is { } trayState ? DesignTheme.StateColor(trayState) : arc.Focus ? DesignTheme.Focus : DesignTheme.Free;
-            using var pen = new Pen(color, (float)geometry.Stroke) { StartCap = LineCap.Flat, EndCap = LineCap.Flat };
-            graphics.DrawArc(pen, bounds, (float)arc.Start, (float)arc.Sweep);
-        }
-        graphics.TranslateTransform(center, center);
-        graphics.RotateTransform(45);
-        var side = (float)geometry.DiamondSize;
-        using var diamond = Rounded(new(-side / 2, -side / 2, side, side), (float)geometry.DiamondRadius);
-        using var core = new SolidBrush(state is null ? DesignTheme.Text : state == TrayState.Free ? DesignTheme.Ground : DesignTheme.StateColor(state.Value));
-        graphics.FillPath(core, diamond);
-        if (geometry.DiamondStroke > 0)
-        {
-            using var outline = new Pen(DesignTheme.Free, (float)geometry.DiamondStroke);
-            graphics.DrawPath(outline, diamond);
-        }
-        return bitmap;
+        catch { bitmap.Dispose(); throw; }
     }
 
     public static Icon Icon(int size, TrayState? state)
@@ -91,4 +95,26 @@ internal static class MarkRenderer
     private static extern uint GetDpiForWindow(IntPtr window);
     [DllImport("user32.dll")]
     private static extern int GetSystemMetricsForDpi(int index, uint dpi);
+}
+
+internal sealed class TrayIcons : IDisposable
+{
+    public int Size { get; }
+    public Icon Focus { get; }
+    public Icon Free { get; }
+    public Icon Alert { get; }
+
+    public TrayIcons(int size)
+    {
+        Size = size;
+        Focus = MarkRenderer.Icon(size, TrayState.Focus);
+        try
+        {
+            Free = MarkRenderer.Icon(size, TrayState.Free);
+            try { Alert = MarkRenderer.Icon(size, TrayState.Alert); }
+            catch { Free.Dispose(); throw; }
+        }
+        catch { Focus.Dispose(); throw; }
+    }
+    public void Dispose() { Focus.Dispose(); Free.Dispose(); Alert.Dispose(); }
 }

@@ -18,10 +18,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly System.Windows.Forms.Timer blockTimer = new() { Interval = 2000 };
     private readonly System.Windows.Forms.Timer syncTimer = new() { Interval = 60000 };
     private readonly CancellationTokenSource shutdown = new();
-    private Icon blockedIcon = MarkRenderer.Icon(MarkRenderer.TraySize(), TrayState.Focus);
-    private Icon freeIcon = MarkRenderer.Icon(MarkRenderer.TraySize(), TrayState.Free);
-    private Icon problemIcon = MarkRenderer.Icon(MarkRenderer.TraySize(), TrayState.Alert);
-    private int iconSize = MarkRenderer.TraySize();
+    private TrayIcons icons = new(MarkRenderer.TraySize());
     private bool highContrast = DesignTheme.HighContrast;
     private SettingsForm? settings;
     private bool syncing;
@@ -48,7 +45,7 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add("設定...", null, (_, _) => OpenSettings());
         menu.Items.Add("今すぐ同期", null, async (_, _) => await SynchronizeAsync());
         menu.Items.Add("終了", null, (_, _) => ExitThread());
-        tray = new() { Visible = true, Icon = problemIcon, ContextMenuStrip = menu, Text = "Cadence" };
+        tray = new() { Visible = true, Icon = icons.Alert, ContextMenuStrip = menu, Text = "Cadence" };
         tray.DoubleClick += (_, _) => OpenSettings();
         monitor = new(clock, log, Notify);
         blockTimer.Tick += async (_, _) =>
@@ -121,7 +118,7 @@ internal sealed class TrayContext : ApplicationContext
         RefreshIcons();
         var visualState = TrayPresentation.Evaluate(service.State.Timetable is not null, block.Blocked,
             service.AuthProblem is not null, service.State.Problem is not null, service.StorageProblem is not null);
-        tray.Icon = visualState switch { TrayState.Focus => blockedIcon, TrayState.Free => freeIcon, _ => problemIcon };
+        tray.Icon = visualState switch { TrayState.Focus => icons.Focus, TrayState.Free => icons.Free, _ => icons.Alert };
         tray.Text = ScheduleStatus.Tooltip(state, block, service.State.LastSync, clock);
         stateMenu.Text = state;
         var next = ScheduleStatus.NextText(block.NextChange, clock);
@@ -187,9 +184,7 @@ internal sealed class TrayContext : ApplicationContext
             syncTimer.Dispose();
             tray.ContextMenuStrip?.Dispose();
             tray.Dispose();
-            blockedIcon.Dispose();
-            freeIcon.Dispose();
-            problemIcon.Dispose();
+            icons.Dispose();
             service.Dispose();
             shutdown.Dispose();
         }
@@ -199,18 +194,13 @@ internal sealed class TrayContext : ApplicationContext
     private void RefreshIcons()
     {
         var size = MarkRenderer.TraySize();
-        if (size == iconSize && highContrast == DesignTheme.HighContrast) return;
-        var oldBlocked = blockedIcon;
-        var oldFree = freeIcon;
-        var oldProblem = problemIcon;
-        blockedIcon = MarkRenderer.Icon(size, TrayState.Focus);
-        freeIcon = MarkRenderer.Icon(size, TrayState.Free);
-        problemIcon = MarkRenderer.Icon(size, TrayState.Alert);
-        tray.Icon = problemIcon;
-        oldBlocked.Dispose();
-        oldFree.Dispose();
-        oldProblem.Dispose();
-        iconSize = size;
+        if (size == icons.Size && highContrast == DesignTheme.HighContrast) return;
+        var replacement = new TrayIcons(size);
+        try { tray.Icon = replacement.Alert; }
+        catch { replacement.Dispose(); throw; }
+        var previous = icons;
+        icons = replacement;
+        previous.Dispose();
         highContrast = DesignTheme.HighContrast;
     }
 }
