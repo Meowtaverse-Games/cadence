@@ -68,7 +68,6 @@ internal sealed class SettingsForm : Form
         scroll.Layout += (_, _) => root.Width = Math.Max(root.MinimumSize.Width, scroll.ClientSize.Width - scroll.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-        var stateText = Column();
         tag.Font = theme.Tag;
         status.Font = theme.Heading;
         sync.Font = theme.Mono;
@@ -76,9 +75,10 @@ internal sealed class SettingsForm : Form
         sync.MinimumSize = new Size(170, 36);
         sync.Dock = DockStyle.Fill;
         sync.TextAlign = ContentAlignment.TopRight;
-        stateText.Controls.AddRange([tag, status]);
-        statusCard.Controls.Add(stateText, 0, 0);
+        statusCard.Controls.Add(tag, 0, 0);
         statusCard.Controls.Add(sync, 1, 0);
+        statusCard.Controls.Add(status, 0, 1);
+        statusCard.SetColumnSpan(status, 2);
         statusCard.Paint += (_, e) =>
         {
             using var pen = new Pen(displayState == TrayState.Focus ? DesignTheme.Focus : DesignTheme.Line);
