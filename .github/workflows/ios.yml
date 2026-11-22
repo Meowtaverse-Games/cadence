@@ -44,7 +44,7 @@ jobs:
           import subprocess
           help_text = subprocess.run(["xcodebuild", "-help"], capture_output=True, text=True, check=True)
           text = help_text.stdout + help_text.stderr
-          section = text[text.index("method : String"):].split("\n\n", 1)[0]
+          section = text.split("method : String", 1)[1].lstrip().split("\n\n", 1)[0]
           print(section)
           assert "debugging" in section and "development" in section
           PYHELP
