@@ -19,7 +19,7 @@ struct ContentView: View {
                     } else if model.inactiveReason == nil { Text("次の切り替えはありません") }
                     Text("登録中の activity: \(model.activityCount) / 8")
                     Text("Screen Time: \(authorizationText)")
-                    if model.authorization != .approved {
+                    if !model.authorization.isApprovedForCadence {
                         Button("Screen Time を許可") { Task { await model.authorize() } }
                         Text("拒否した場合は、設定アプリの「スクリーンタイム」で Cadence の許可を確認してください。")
                             .font(.footnote)
@@ -34,7 +34,7 @@ struct ContentView: View {
                     Button("アプリを選択") {
                         draftSelection = model.selection
                         picker = true
-                    }.disabled(model.authorization != .approved)
+                    }.disabled(!model.authorization.isApprovedForCadence)
                     Text("アプリ \(model.selection.applicationTokens.count)・カテゴリ \(model.selection.categoryTokens.count)・Web ドメイン \(model.selection.webDomainTokens.count)")
                 }
                 Section("時間割（日本時間）") {
@@ -77,12 +77,10 @@ struct ContentView: View {
     }
 
     private var authorizationText: String {
-        switch model.authorization {
-        case .approved: return "許可済み"
-        case .denied: return "拒否されています"
-        case .notDetermined: return "未確認"
-        @unknown default: return "不明"
-        }
+        if model.authorization.isApprovedForCadence { return "許可済み" }
+        if model.authorization == .denied { return "拒否されています" }
+        if model.authorization == .notDetermined { return "未確認" }
+        return "不明"
     }
 }
 

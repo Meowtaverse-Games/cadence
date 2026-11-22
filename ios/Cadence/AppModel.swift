@@ -59,7 +59,7 @@ final class AppModel: ObservableObject {
         let hasSelection = saved.map {
             !$0.applicationTokens.isEmpty || !$0.categoryTokens.isEmpty || !$0.webDomainTokens.isEmpty
         } ?? false
-        if authorization != .approved {
+        if !authorization.isApprovedForCadence {
             inactiveReason = "Screen Time が許可されていないため、ブロックしていません。"
         } else if !hasSelection {
             inactiveReason = "ブロックするアプリ・カテゴリ・Web ドメインが選択されていません。"

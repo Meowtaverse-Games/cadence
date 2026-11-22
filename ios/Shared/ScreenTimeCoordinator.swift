@@ -31,7 +31,7 @@ struct ScreenTimeCoordinator {
                 let start = activity.flatMap { ActivityPlanner.start(for: $0.rawValue) }
                 let evaluation = ActivityPlanner.evaluationTime(now: received, intervalDidStart: didStart, activityStart: start)
                 let authorization = AuthorizationCenter.shared.authorizationStatus
-                let authorized = authorization == .approved
+                let authorized = authorization.isApprovedForCadence
                 let permitted = MonitoringPolicy.permitsMonitoring(isApp: category == "app", authorized: authorized)
                 let authorizationAction = permitted ? "evaluateTimetable" : "clearShieldAndStopMonitoring"
                 let hasSelection = selection.map {
