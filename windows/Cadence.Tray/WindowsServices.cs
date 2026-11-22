@@ -51,6 +51,7 @@ internal sealed class ProcessMonitor(TimeProvider clock, DailyLog log, Action<st
     private readonly ProcessNotifications notifications = new(clock, log.Write, notify);
     public void Tick(Timetable? timetable, IReadOnlyCollection<string> executables)
     {
+        notifications.BeginScan();
         try
         {
             if (timetable is null || !TimetableExpander.IsBlockedAt(timetable, clock.GetUtcNow())) return;

@@ -8,6 +8,18 @@ namespace Cadence.Tray.Tests;
 
 public sealed class DesignTests
 {
+    [Theory]
+    [InlineData(true, "19:30 まで · 残り 10:00")]
+    [InlineData(false, "19:30 から · あと 10:00")]
+    public void AlertCountdownUsesActualBlockState(bool blocked, string expected)
+    {
+        var now = DateTimeOffset.Parse("2026-01-05T10:20:00Z");
+        Assert.Equal(TrayState.Alert, TrayPresentation.Evaluate(true, blocked, true, false, false));
+        Assert.Equal(expected, TrayPresentation.Countdown(blocked, now.AddMinutes(10), now));
+        Assert.EndsWith("00:00", TrayPresentation.Countdown(blocked, now.AddSeconds(-1), now));
+        Assert.Equal("次の切り替えはありません", TrayPresentation.Countdown(blocked, null, now));
+    }
+
     [Fact]
     public void ProblemsTakePrecedenceOverBlocking()
     {
@@ -90,6 +102,8 @@ public sealed class DesignTests
         var timeline = Assert.IsType<TodayTimeline>(TodayTimeline.Build(json, now));
         Assert.Equal(DateTimeOffset.Parse("2026-01-05T19:00:00+09:00"), timeline.Start);
         Assert.Equal(12, timeline.Segments.Count);
+        Assert.Equal("合成の予定", timeline.Name);
+        Assert.Equal("自10 / 集20", timeline.Summary);
         if (current) Assert.Equal(fraction, timeline.NowFraction!.Value, 8);
         else Assert.Null(timeline.NowFraction);
         AssertCoverageAndCore(json, timeline);

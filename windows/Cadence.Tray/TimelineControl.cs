@@ -7,6 +7,7 @@ namespace Cadence.Tray;
 internal sealed class TimelineControl : Control
 {
     private TodayTimeline? timeline;
+    private double? nowFraction;
     public TimelineControl()
     {
         DoubleBuffered = true;
@@ -17,8 +18,17 @@ internal sealed class TimelineControl : Control
     public void SetTimeline(TodayTimeline? value)
     {
         timeline = value;
+        nowFraction = value?.NowFraction;
         AccessibleDescription = value is null ? "今日の予定はありません" :
             $"{Time(value.Start)} から {Time(value.End)}。斜線は集中、無地は自由。";
+        Invalidate();
+    }
+    public void SetNow(DateTimeOffset now)
+    {
+        var fraction = timeline is { } value && now >= value.Start && now < value.End
+            ? (double?)((now - value.Start).TotalSeconds / (value.End - value.Start).TotalSeconds) : null;
+        if (fraction == nowFraction) return;
+        nowFraction = fraction;
         Invalidate();
     }
     private static string Time(DateTimeOffset at) => at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture);
@@ -26,11 +36,10 @@ internal sealed class TimelineControl : Control
     {
         base.OnPaint(e);
         var scale = DeviceDpi / 96f;
-        var top = (int)(24 * scale);
-        TextRenderer.DrawText(e.Graphics, timeline is null ? "今日の予定はありません" : "今日の時間割", Font,
-            new Point(0, 0), DesignTheme.Muted);
+        var top = (int)(8 * scale);
         if (timeline is not { } value) return;
-        var height = 12 * scale;
+        var height = 18 * scale;
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         var width = ClientSize.Width - 2;
         foreach (var segment in value.Segments)
         {
@@ -39,16 +48,14 @@ internal sealed class TimelineControl : Control
             using Brush brush = segment.Blocked
                 ? new HatchBrush(HatchStyle.BackwardDiagonal, DesignTheme.Focus, DesignTheme.HighContrast ? SystemColors.Window : Color.FromArgb(204, DesignTheme.Focus))
                 : new SolidBrush(DesignTheme.HighContrast ? SystemColors.WindowText : Color.FromArgb(140, DesignTheme.Free));
-            e.Graphics.FillRectangle(brush, x, top, Math.Max(1, end - x - scale), height);
+            using var path = Shapes.Round(new RectangleF(x, top, Math.Max(1, end - x - 3 * scale), height), 6 * scale);
+            e.Graphics.FillPath(brush, path);
         }
-        if (value.NowFraction is { } fraction)
+        if (nowFraction is { } fraction)
         {
             using var pen = new Pen(DesignTheme.Text, 2 * scale);
             var x = (float)fraction * width;
             e.Graphics.DrawLine(pen, x, top - 4 * scale, x, top + height + 4 * scale);
         }
-        TextRenderer.DrawText(e.Graphics, Time(value.Start), Font, new Point(0, (int)(top + height + 6 * scale)), DesignTheme.Muted);
-        TextRenderer.DrawText(e.Graphics, Time(value.End), Font,
-            new Rectangle(0, (int)(top + height + 6 * scale), ClientSize.Width, (int)(24 * scale)), DesignTheme.Muted, TextFormatFlags.Right);
     }
 }

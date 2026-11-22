@@ -57,7 +57,8 @@ public sealed class ProcessAndLogTests
         var reporter = new ProcessNotifications(new FakeClock(), logs.Add, (_, _, warning) => notices.Add(warning));
         reporter.Success("Synthetic.exe");
         reporter.Failure("Synthetic.exe", 100);
-        Assert.Single(logs);
+        Assert.Equal(2, logs.Count);
+        Assert.Contains("process_termination_failed", logs[1]);
         Assert.False(Assert.Single(notices));
     }
 

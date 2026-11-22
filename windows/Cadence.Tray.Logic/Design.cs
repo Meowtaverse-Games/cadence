@@ -13,6 +13,16 @@ public static class TrayPresentation
     public static TrayState Evaluate(bool hasTimetable, bool blocked, bool authProblem, bool syncProblem, bool storageProblem) =>
         !hasTimetable || authProblem || syncProblem || storageProblem ? TrayState.Alert : blocked ? TrayState.Focus : TrayState.Free;
 
+    // Blocking is independent of the visual warning state (cached schedules keep running).
+    public static string Countdown(bool blocked, DateTimeOffset? nextChange, DateTimeOffset now)
+    {
+        if (nextChange is not { } next) return "次の切り替えはありません";
+        var remaining = Math.Max(0, (long)(next - now).TotalSeconds);
+        var time = next.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture);
+        return time + (blocked ? " まで · 残り " : " から · あと ") +
+            (remaining / 60).ToString("00", CultureInfo.InvariantCulture) + ":" + (remaining % 60).ToString("00", CultureInfo.InvariantCulture);
+    }
+
     public static SyncSummary Synchronization(bool configurationUsable, DateTimeOffset? lastSync, bool hasProblem)
     {
         var time = lastSync is { } at
@@ -44,7 +54,7 @@ public static class CadenceMark
 }
 
 public sealed record TimelineSegment(DateTimeOffset Start, DateTimeOffset End, bool Blocked);
-public sealed record TodayTimeline(DateTimeOffset Start, DateTimeOffset End, IReadOnlyList<TimelineSegment> Segments, double? NowFraction)
+public sealed record TodayTimeline(DateTimeOffset Start, DateTimeOffset End, IReadOnlyList<TimelineSegment> Segments, double? NowFraction, string Name = "今日の時間割", string Summary = "")
 {
     private static readonly TimeSpan Japan = TimeSpan.FromHours(9);
 
@@ -56,7 +66,7 @@ public sealed record TodayTimeline(DateTimeOffset Start, DateTimeOffset End, IRe
         if (parsed.Timetable is not { } timetable) return null;
         using var document = JsonDocument.Parse(json!);
         var today = now.ToOffset(Japan).Date;
-        var windows = new List<(DateTimeOffset Start, DateTimeOffset End)>();
+        var windows = new List<(DateTimeOffset Start, DateTimeOffset End, string Name, string Summary)>();
         foreach (var pattern in document.RootElement.GetProperty("patterns").EnumerateArray())
         {
             if (!pattern.GetProperty("enabled").GetBoolean()) continue;
@@ -69,7 +79,10 @@ public sealed record TodayTimeline(DateTimeOffset Start, DateTimeOffset End, IRe
                 var from = new DateTimeOffset(date, Japan).Add(start);
                 var to = new DateTimeOffset(date, Japan).Add(end);
                 if (to <= from) to = to.AddDays(1);
-                if (from <= now && now < to || from >= now && from.Date == today) windows.Add((from, to));
+                if (from <= now && now < to || from >= now && from.Date == today) windows.Add((from, to,
+                    pattern.GetProperty("name").GetString() ?? "今日の時間割",
+                    string.Join(" / ", pattern.GetProperty("segments").EnumerateArray().Select(s =>
+                        (s.GetProperty("kind").GetString() == "block" ? "集" : "自") + s.GetProperty("minutes").GetInt32().ToString(CultureInfo.InvariantCulture)))));
             }
         }
         if (windows.Count == 0) return null;
@@ -87,6 +100,6 @@ public sealed record TodayTimeline(DateTimeOffset Start, DateTimeOffset End, IRe
         }
         if (cursor < window.End) segments.Add(new(cursor, window.End, false));
         return new(window.Start, window.End, segments,
-            now >= window.Start && now < window.End ? (now - window.Start).TotalSeconds / (window.End - window.Start).TotalSeconds : null);
+            now >= window.Start && now < window.End ? (now - window.Start).TotalSeconds / (window.End - window.Start).TotalSeconds : null, window.Name, window.Summary);
     }
 }

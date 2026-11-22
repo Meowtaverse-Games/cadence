@@ -126,10 +126,10 @@ internal sealed class TrayContext : ApplicationContext
             : block.Blocked ? "集中の時間" + (block.NextChange is null ? "" : " · " + next[2..] + " まで")
             : "自由時間" + (block.NextChange is null ? "" : " · 次は " + next[2..] + " から");
         var syncProblem = service.AuthProblem ?? service.State.Problem ?? service.StorageProblem;
-        settings?.RefreshStatus(new(visualState, summary,
+        settings?.RefreshStatus(new(visualState, visualState == TrayState.Alert ? service.AuthProblem ?? service.State.Problem ?? service.StorageProblem ?? summary : summary,
             TrayPresentation.Synchronization(configuration.Usable, service.State.LastSync, syncProblem is not null),
             service.Email, service.Configured, configuration.Message,
-            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow()), configuration.Usable));
+            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow()), configuration.Usable, block.NextChange, service.State.LastSync, clock.GetUtcNow(), Blocked: block.Blocked));
         if (service.TakeAuthNotification()) Notify("サインインが必要です", "設定画面でサインインしてください。保存済みの時間割でブロックを続けます。", true);
     }
 
