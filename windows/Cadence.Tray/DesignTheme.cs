@@ -21,7 +21,7 @@ internal sealed class DesignTheme : IDisposable
     public Font Caption { get; } = InstalledFont("Yu Gothic UI", "Segoe UI", 9);
     public Font Mono { get; } = InstalledFont("Cascadia Mono", "Consolas", 9);
     public Font Tag { get; } = InstalledFont("Segoe UI Semibold", "Segoe UI", 9);
-    public Font Heading { get; } = InstalledFont("Yu Gothic UI", "Segoe UI", 15);
+    public Font Heading { get; } = new(InstalledFont("Yu Gothic UI", "Segoe UI", 22), FontStyle.Bold);
 
     private static Font InstalledFont(string preferred, string fallback, float size)
     {
