@@ -72,6 +72,9 @@ internal sealed class SettingsForm : Form
         tag.Font = theme.Tag;
         status.Font = theme.Heading;
         sync.Font = theme.Mono;
+        sync.AutoSize = false;
+        sync.MinimumSize = new Size(170, 36);
+        sync.Dock = DockStyle.Fill;
         sync.TextAlign = ContentAlignment.TopRight;
         stateText.Controls.AddRange([tag, status]);
         statusCard.Controls.Add(stateText, 0, 0);
@@ -113,6 +116,8 @@ internal sealed class SettingsForm : Form
         timeline.Font = theme.Mono;
         var expand = Button("接続と詳細 ▸");
         expand.Click += (_, _) => { details.Visible = !details.Visible; expand.Text = details.Visible ? "接続と詳細 ▾" : "接続と詳細 ▸"; };
+        error.Visible = false;
+        error.TextChanged += (_, _) => error.Visible = error.Text.Length > 0;
         root.Controls.AddRange([error, expand, details]);
         details.Controls.Add(Label("Cadence はタスクバー右の通知領域（「^」の中）に常駐します。この画面を閉じても動き続けます。開き直すにはアイコンをダブルクリックするか、右クリック →「設定...」を選びます。"));
         details.Controls.Add(connection);
