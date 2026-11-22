@@ -2,10 +2,11 @@ import XCTest
 import CadenceCore
 
 final class CoalescingRefreshQueueTests: XCTestCase {
-    private final class Input {
+    private final class Input: @unchecked Sendable {
         private let lock = NSLock()
         private var value = 0
         func set(_ newValue: Int) { lock.lock(); defer { lock.unlock() }; value = newValue }
+        func increment() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
         func read() -> Int { lock.lock(); defer { lock.unlock() }; return value }
     }
 
@@ -15,18 +16,18 @@ final class CoalescingRefreshQueueTests: XCTestCase {
         let finished = expectation(description: "both batches completed")
         let gate = DispatchSemaphore(value: 0)
         let input = Input()
-        var calls = 0 // Only accessed on the serial worker.
-        let worker = CoalescingRefreshQueue<(Int, String, Int)> { event in
+        let counter = Input()
+        let worker = CoalescingRefreshQueue<(Int, String, Int, Bool)> { @Sendable event, reset, _ in
             XCTAssertFalse(Thread.isMainThread)
-            calls += 1
+            let calls = counter.increment()
             let value = input.read()
             if calls == 1 {
                 started.fulfill()
                 XCTAssertEqual(gate.wait(timeout: .now() + 5), .success)
             }
-            return (calls, event, value)
+            return (calls, event, value, reset)
         }
-        var results: [(Int, String, Int)] = []
+        var results: [(Int, String, Int, Bool)] = []
         var running: [Bool] = []
         var completions = 0
         worker.didRefresh = {
@@ -42,7 +43,7 @@ final class CoalescingRefreshQueueTests: XCTestCase {
         // The main actor stays responsive while the synchronous worker is blocked.
         for value in 1...100 {
             input.set(value)
-            worker.request(value.isMultiple(of: 2) ? "save" : "BG") { _ in completions += 1 }
+            worker.request(value.isMultiple(of: 2) ? "save" : "BG", reset: value == 50) { _ in completions += 1 }
         }
         XCTAssertTrue(worker.isRunning)
         gate.signal()
@@ -51,6 +52,7 @@ final class CoalescingRefreshQueueTests: XCTestCase {
         XCTAssertEqual(results.map { $0.0 }, [1, 2])
         XCTAssertEqual(results.map { $0.1 }, ["launch", "BG,save"])
         XCTAssertEqual(results.map { $0.2 }, [0, 100])
+        XCTAssertEqual(results.map { $0.3 }, [false, true])
         XCTAssertEqual(completions, 101)
         XCTAssertEqual(running, [true, false])
         XCTAssertFalse(worker.isRunning)
@@ -60,7 +62,7 @@ final class CoalescingRefreshQueueTests: XCTestCase {
     func testRequestAfterIdleStartsNewBatch() async {
         let first = expectation(description: "first idle")
         let second = expectation(description: "second idle")
-        let worker = CoalescingRefreshQueue<String> { $0 }
+        let worker = CoalescingRefreshQueue<String> { @Sendable event, _, _ in event }
         var results: [String] = []
         worker.didRefresh = { results.append($0) }
         worker.didChangeRunning = { if !$0 { first.fulfill() } }
@@ -71,4 +73,49 @@ final class CoalescingRefreshQueueTests: XCTestCase {
         await fulfillment(of: [second], timeout: 5)
         XCTAssertEqual(results, ["first", "second"])
     }
+
+    @MainActor
+    func testBatchesCarryOldestRequestTimeAndCountIncludingRepeatedEvents() async {
+        let started = expectation(description: "blocking worker started")
+        let finished = expectation(description: "pending batch finished")
+        let gate = DispatchSemaphore(value: 0)
+        let worker = CoalescingRefreshQueue<RefreshBatch> { @Sendable event, _, batch in
+            if event == "blocking" {
+                started.fulfill()
+                XCTAssertEqual(gate.wait(timeout: .now() + 5), .success)
+            }
+            return batch
+        }
+        var results: [RefreshBatch] = []
+        worker.didRefresh = { results.append($0) }
+        worker.didChangeRunning = { if !$0 { finished.fulfill() } }
+        worker.request("blocking")
+        await fulfillment(of: [started], timeout: 5)
+        let earliest = Date()
+        let earliestUptime = DispatchTime.now().uptimeNanoseconds
+        worker.request("pending")
+        let latestUptime = DispatchTime.now().uptimeNanoseconds
+        let latest = Date()
+        for _ in 0..<99 { worker.request("pending") }
+        gate.signal()
+        await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(results.count, 2)
+        guard results.count == 2 else { return }
+        XCTAssertEqual(results.map(\.count), [1, 100])
+        XCTAssertGreaterThanOrEqual(results[1].received, earliest)
+        XCTAssertLessThanOrEqual(results[1].received, latest)
+        XCTAssertGreaterThanOrEqual(results[1].startedUptimeNanoseconds, earliestUptime)
+        XCTAssertLessThanOrEqual(results[1].startedUptimeNanoseconds, latestUptime)
+
+        // A subsequent idle batch must not retain the preceding batch's time or count.
+        let idle = expectation(description: "new idle batch finished")
+        worker.didChangeRunning = { if !$0 { idle.fulfill() } }
+        let nextEarliest = Date()
+        worker.request("next")
+        await fulfillment(of: [idle], timeout: 5)
+        XCTAssertEqual(results.count, 3)
+        XCTAssertEqual(results.last?.count, 1)
+        XCTAssertGreaterThanOrEqual(results.last!.received, nextEarliest)
+    }
+
 }

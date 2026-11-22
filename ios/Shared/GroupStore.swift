@@ -73,7 +73,30 @@ struct GroupStore {
         try locked("timetable") { try write(timetable, file: "timetable.json") }
     }
 
-    func selection() -> FamilyActivitySelection? { read("selection.json", as: FamilyActivitySelection.self) }
+    struct SelectionSnapshot {
+        let value: FamilyActivitySelection?
+        let state: SelectionReadState
+    }
+
+    func selectionSnapshot() -> SelectionSnapshot {
+        do {
+            let location = try url("selection.json")
+            let data: Data
+            do { data = try Data(contentsOf: location) }
+            catch let error as NSError where error.domain == NSCocoaErrorDomain
+                && (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
+                return SelectionSnapshot(value: nil, state: .missing)
+            }
+            let value = try JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+            let empty = value.applicationTokens.isEmpty && value.categoryTokens.isEmpty && value.webDomainTokens.isEmpty
+            return SelectionSnapshot(value: value, state: empty ? .empty : .populated)
+        } catch {
+            record("readFailure file=selection.json reason=\(Self.reason(error)); treatedAsMissing=false")
+            return SelectionSnapshot(value: nil, state: .unreadable)
+        }
+    }
+
+    func selection() -> FamilyActivitySelection? { selectionSnapshot().value }
     func save(_ selection: FamilyActivitySelection) throws {
         try locked("selection") { try write(selection, file: "selection.json") }
     }
@@ -125,10 +148,18 @@ struct GroupStore {
 
     func record(_ message: String) {
         if let diagnostics { diagnostics(message); return }
+        recordLine(formattedRecord(message))
+    }
+
+    func formattedRecord(_ message: String) -> String {
         let bounded = String(message.prefix(4096))
-        let line = "\(Self.timestamp(Date())) [\(category)] timezone=\(TimeZone.current.identifier) \(bounded)"
+        return "\(Self.timestamp(Date())) [\(category)] timezone=\(TimeZone.current.identifier) \(bounded)"
+    }
+
+    // A callback can emit this exact line synchronously, then persist it off the callback stack.
+    func recordLine(_ line: String, systemLogAlreadyEmitted: Bool = false) {
         let logger = Logger(subsystem: "com.meowtaverse-games.cadence", category: category)
-        logger.notice("\(line, privacy: .public)")
+        if !systemLogAlreadyEmitted { logger.notice("\(line, privacy: .public)") }
         do {
             try locked("events") {
                 var entries: [String]

@@ -1,10 +1,9 @@
 import Foundation
 import Combine
-import DeviceActivity
 import CadenceCore
 
 struct AppRefreshResult {
-    let activityCount: Int
+    let activityCount: Int?
     let errors: [String]
 }
 
@@ -14,10 +13,10 @@ final class AppRefreshService: ObservableObject {
     static let shared = AppRefreshService()
     @Published private(set) var isRefreshing = false
     @Published private(set) var result: AppRefreshResult?
-    private let worker = CoalescingRefreshQueue<AppRefreshResult> { event in
-        ScreenTimeCoordinator(category: "app").refresh(event: event, reset: true)
+    private let worker = CoalescingRefreshQueue<AppRefreshResult> { @Sendable event, reset, batch in
+        let count = ScreenTimeCoordinator(category: "app").refresh(event: event, reset: reset, batch: batch)
         return AppRefreshResult(
-            activityCount: DeviceActivityCenter().activities.count,
+            activityCount: count,
             errors: GroupStore(category: "app").registrationErrors())
     }
 
@@ -26,8 +25,8 @@ final class AppRefreshService: ObservableObject {
         worker.didRefresh = { [weak self] in self?.result = $0 }
     }
 
-    func request(_ event: String, completion: (() -> Void)? = nil) {
-        worker.request(event, completion: completion.map { callback in { _ in callback() } })
+    func request(_ event: String, reset: Bool = false, completion: (() -> Void)? = nil) {
+        worker.request(event, reset: reset, completion: completion.map { callback in { _ in callback() } })
     }
 }
 

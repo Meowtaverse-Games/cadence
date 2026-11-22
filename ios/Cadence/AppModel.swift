@@ -29,7 +29,8 @@ final class AppModel: ObservableObject {
         AppRefreshService.shared.$result
             .compactMap { $0 }
             .sink { [weak self] result in
-                self?.activityCount = result.activityCount
+                // A failed reconciliation does not mean the OS has zero activities.
+                if let count = result.activityCount { self?.activityCount = count }
                 self?.registrationErrors = result.errors
                 self?.updateStatus()
             }
@@ -45,14 +46,14 @@ final class AppModel: ObservableObject {
             }
     }
 
-    func scheduleRefresh(_ event: String) {
+    func scheduleRefresh(_ event: String, reset: Bool = false) {
         // Refresh authorization/status before enqueueing; never wait for DeviceActivityCenter.
         updateStatus()
-        AppRefreshService.shared.request(event)
+        AppRefreshService.shared.request(event, reset: reset)
     }
 
     func refresh(_ event: String) {
-        scheduleRefresh(event)
+        scheduleRefresh(event, reset: true)
     }
 
     func updateStatus() {
