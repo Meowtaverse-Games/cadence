@@ -30,6 +30,8 @@ public sealed class ProcessNotifications(TimeProvider clock, Action<string> log,
 
     public void Success(string executable, DateTimeOffset? blockEnd = null)
     {
+        var safeName = executable.Replace("\r", "").Replace("\n", "");
+        if (ExecutableNames.Normalize(safeName) == safeName) log("process_terminated exe=" + safeName);
         if (notifications.Allow(executable)) notify(executable + " を終了しました", blockEnd is { } end
             ? "集中の時間です（" + end.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture) + " まで）"
             : "集中の時間です", false);
