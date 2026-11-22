@@ -5,7 +5,7 @@ workflows:
     max_build_duration: 60
     # No triggering or publishing: start manually; do not upload to TestFlight.
     environment:
-      xcode: '16.4'
+      xcode: '26.6'
       groups:
         - cadence_apple
       vars:

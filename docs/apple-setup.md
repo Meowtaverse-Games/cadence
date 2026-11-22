@@ -77,7 +77,11 @@ Environment variables にグループ `cadence_apple` を作り、次の4つを�
 ## 7. 手動ビルド
 
 Start new build で対象ブランチと `ios-development` を選ぶ。push トリガーと TestFlight への publishing は無い。
-Xcode 16.4、SHA-256 照合付き XcodeGen 2.44.1、プロジェクト生成、署名、archive/export の順に走る。
+Xcode 26.6、SHA-256 照合付き XcodeGen 2.44.1、プロジェクト生成、署名、archive/export の順に走る。
+手元でビルドする場合も Xcode 26.6 を使う。GitHub Actions は macos-26、Codemagic の26.6イメージは
+確認時点で macOS 26.5.1。iOS 16.0以上・Swift 5モードは維持する。
+版の根拠: [GitHub ランナー一覧](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)、
+[Codemagic イメージ一覧](https://docs.codemagic.io/specs-macos/xcode-26-6/)。
 
 確認: 各 Bundle ID について profile が取得され、3ターゲットに適用されること。
 `--strict-match-identifier` によって、本体の検索に extension の ID が混ざるのを防ぐ。
@@ -103,6 +107,14 @@ security cms -D -i '<APP_OR_APPEX_PATH>/embedded.mobileprovision'
 `use-profiles --archive-method development` が署名と export 設定を作り、`build-ipa --archive-flags`
 で `-onlyUsePackageVersionsFromResolvedFile` を渡す。Team ID は profile からビルド時に設定される。
 
+export method は互換名 `development` を維持する。Apple の現在の名称は
+[Debugging](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases) だが、
+CLI の `--archive-method` と [ExportOptions の型](https://github.com/codemagic-ci-cd/cli-tools/blob/master/src/codemagic/models/export_options.py)
+は `development` を扱うため、`debugging` を CLI に直接渡さない。
+CI で Xcode 26.6 自身の `xcodebuild -help` の method 欄を表示し、新名称と互換名を確認する。
+旧名による非推奨警告が出る可能性があり、実際の署名付き export は手順7で未確認。
+将来互換名が削除された場合は CLI の対応版への更新と export 設定の移行が必要になる。
+
 ## 8. iPhone にインストール
 
 接続した iPhone を Xcode → Window → Devices and Simulators で選び、Installed Apps の ＋ から `.ipa` を選ぶ。
@@ -114,10 +126,14 @@ security cms -D -i '<APP_OR_APPEX_PATH>/embedded.mobileprovision'
 iPhone だけなら Cadence → 記録 → 更新で新しい順に確認し、テキストとして共有できる。最新500件を保持する。
 Mac なら「コンソール」を開き、接続した iPhone を選んでストリーミングを開始し、
 subsystem `com.meowtaverse-games.cadence` で絞る。category は `app` / `monitor` / `shield`。
+shield の通常表示は記録しない（読込障害は記録する）。再登録1回の診断は1件にまとめ、本文は4096文字までとする。
 確認: 再登録ボタンで両方に同じイベントが出ること。
 
 主なフィールドは `event`、`activity`、`scheduledStart/End`、`received`、`evaluation`、
-`decision`（かけた・外した・変えない）、`blocked`、`registered count/names`、`plan`、`timezone`。
+`decision`（かけた・外した・変えない）、`blocked`、`registered count/first/last`（区間名の先頭・末尾）、
+`watchdog`、`plannedLastEnd`、`timezone`。`authorizationStatus` は読んだ状態、`authorizationAction` はその状態で行った操作。
+extension は未許可の読み値だけでは停止せず、本体は未許可なら解除・監視停止する。
+`timeZoneReset` は保存済み identifier と現在値の違いによる、見張りを含む全解除・再登録を表す。
 `startMonitoringFailure` には失敗した activity とエラーの domain/code が出る。
 時刻はオフセット付き ISO 8601。`selectionCounts` はアプリ/カテゴリ/Web の件数のみ。
 記録には動作時刻があるため、共有は非公開の保管先に限る。結果を公開するなら合成データでの要約だけにする。
@@ -149,16 +165,16 @@ Account Holder が3つすべての Bundle ID について Family Controls の配
 
 | ID | 操作 | 記録と判定 | 結果 |
 |---|---|---|---|
-| D1 権限・picker | 初回は許可を拒否し、後で設定から許可。アプリ/カテゴリ/Web を選択して保存 | 拒否中は監視0件。許可後は件数が一致し、ブロック中に対象を開くと「集中の時間です」と解除時刻が表示される | 未確認 |
-| D2 編集・保持 | テンプレート3種類を保存。名前/曜日/時刻/セグメントを編集、無効化、削除。重複窓、14分ブロック、空曜日で保存 | 日本語理由コードを表示し、再起動しても直前の有効な時間割が残る。全削除で shield が外れる | 未確認 |
-| D3 15分・24時間 | 未来の15分窓にブロック15分。別ケースで開始=終了、ブロック720分のみ | `plan` の長さが15分/24時間、登録失敗がないこと、開始と終了で shield が切り替わる | 未確認 |
-| D4 同時監視数 | 長い窓にブロック15分/自由1分を繰り返す | `registered count=8`（区間7＋見張り1）。終了後に古い名前が消えて次が補充される。失敗なら domain/code を控える。本アプリが使う8件までを確認し、OSの絶対上限の探索は別の実験とする | 未確認 |
+| D1 権限・picker | 初回は許可を拒否し、後で設定から許可。アプリ/カテゴリ/Web を選択して保存 | 拒否中は監視0件。許可後は件数が一致し、ブロック中に対象を開くと「集中の時間です」と解除時刻が表示される。カテゴリに含まれる Web を Safari で開いた場合も同じ表示になる。許可したあとアプリを終了・再起動しても `authorized=true` のままで監視が消えないこと。状態と違う場合は `authorizationStatus/Action` と本体・monitor の違いを記録する | 未確認 |
+| D2 編集・保持 | テンプレート3種類を保存。名前/曜日/時刻/セグメントを編集、無効化、削除。重複窓、14分ブロック、空曜日で保存。セグメントの末尾・途中・最後の1行をそれぞれ削除、並べ替え | 日本語理由コードを表示し、再起動しても直前の有効な時間割が残る。行の削除で落ちず、0行の保存は検証エラーになる。全パターン削除で shield が外れる。未許可・未選択・時間割なしでは理由を示し、次の切り替えを表示しない | 未確認 |
+| D3 15分・24時間 | 未来の15分窓にブロック15分。別ケースで開始=終了、ブロック720分のみ | イベントの `scheduledStart/End` の差が15分/24時間、登録失敗がないこと、開始と終了で shield が切り替わる | 未確認 |
+| D4 同時監視数 | 長い窓にブロック15分/自由1分を繰り返す | `registered count=8`（区間7＋見張り1）。終了後に `first/last` が進み、次が補充される。失敗なら domain/code を控える。本アプリが使う8件までを確認し、OSの絶対上限の探索は別の実験とする | 未確認 |
 | D5 開始が過去 | 現在が中に入る窓を保存 | 本体の `blocked=true` で直ちに shield。続く monitor の `intervalDidStart` が即時に届くか、予定開始と受信時刻を比較 | 未確認 |
-| D6 stopMonitoring | ブロック中に再登録を押す | `intervalDidEnd` が呼ばれるか記録する。呼ばれても `evaluation` がブロック内なら `blocked=true` で外れたままにならない | 未確認 |
+| D6 stopMonitoring | ブロック中に再登録を押す | `intervalDidEnd` が呼ばれるか記録する。呼ばれても `evaluation` がブロック内なら `blocked=true` で外れたままにならない。本体の再登録後、そのブロック区間の終了で shield が外れることも確認する | 未確認 |
 | D7 接する境目 | 例: 19:00〜19:15 と19:15〜19:30を別パターンで作り、両方ブロック15分。対象を開いたまま境目を待つ | 前の終了/次の開始の両イベントで `blocked=true`。解除表示は19:30（端末時間に換算）、境目に自由にならない。同じ窓の連続ブロックは結合されるため、このケースに使わない | 未確認 |
-| D8 早い開始通知 | 未来の区間を登録しアプリを閉じて待つ | `received < scheduledStart` の有無。早い場合 `evaluation=scheduledStart` となり shield がかかる。遅い場合は受信時刻を使用 | 未確認 |
-| D9 電源断・再起動 | D4の登録一覧を非公開に控え、登録済み7件がすべて終了するまで電源オフ。再起動し一度ロック解除、Cadenceを開かず見張りの次の境界と次のブロックを待つ。再起動だけのケースも実施 | 対象アプリで shield を確認してから Cadence の記録を見る。`見張り/intervalDidStart` または End、`BGタスク`、補充一覧を確認。本体の前面イベントによる回復と混同しない。BG実行時刻はOS任せ | 未確認 |
-| D10 タイムゾーン | 未来の日本時間の区間を登録。端末の自動タイムゾーンを切り、別ゾーンへ変更。Cadenceを前面に戻すケースと、開かず待つケースを別々に行う | 前者はタイムゾーン変更/前面イベントと再登録、後者は monitor の時刻を確認。同じ絶対時刻でブロックされるか、shield の表示が端末時間か確認。後で自動設定に戻す | 未確認 |
+| D8 早い開始・終了通知 | 未来の区間を登録しアプリを閉じて待つ | `received < scheduledStart` の有無。早い場合 `evaluation=scheduledStart` となり shield がかかる。遅い場合は受信時刻を使用。`intervalDidEnd` で `received < scheduledEnd` が起こるか、その場合 shield が残るかも観察する。終了イベントの判定は仕様どおり受信時刻のまま | 未確認 |
+| D9 電源断・再起動 | D4の `plannedLastEnd` を非公開に控え、登録済み7件がすべて終了するまで電源オフ。再起動し一度ロック解除、Cadenceを開かず見張りの次の境界と次のブロックを待つ。再起動だけのケースも実施 | 対象アプリで shield を確認してから Cadence の記録を見る。`見張り/intervalDidStart` または End、`BGタスク`、補充一覧を確認。本体の前面イベントによる回復と混同しない。BG実行時刻はOS任せ | 未確認 |
+| D10 タイムゾーン | 未来の日本時間の区間を登録。端末の自動タイムゾーンを切り、別ゾーンへ変更。Cadenceを前面に戻すケースと、開かず待つケースを別々に行う | 前者はタイムゾーン変更/前面イベントと再登録、後者は monitor の時刻と `timeZoneReset` を確認。extension の次イベントで見張りを含め全再登録され、同じ identifier の後続イベントでは全再登録を繰り返さないこと。同じ絶対時刻でブロックされるか、shield の表示が端末時間か確認。後で自動設定に戻す | 未確認 |
 | D11 明示的timeZone | 通常ビルドのD10を先に確認。比較用ビルドで `ScreenTimeCoordinator.useExplicitTokyoTimeZone` のみ true にして、CodemagicでビルドしD10を再実施 | 日本時間の components + timeZone をOSが尊重するか比較。結果だけ保存し、仕様/既定値の変更は別作業 | 未確認 |
 | D12 記録・障害 | 記録を共有して件数とフィールドを確認し、消去して更新。OSが監視登録を拒否したケースがあれば再登録 | 新しい順、最大500件、トークン/対象名なし。失敗理由が画面と記録にあり、登録失敗でも本体の shield 判定が続く | 未確認 |
 
