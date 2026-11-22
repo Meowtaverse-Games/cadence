@@ -10,6 +10,7 @@ internal class ChromeForm : Form
     private readonly CaptionButton maximize = new(1);
     private readonly CaptionButton close = new(2);
     private bool maxPressed;
+    private bool suppressMaxRelease;
     protected int ScalePixel(int value) => (int)Math.Round(value * DeviceDpi / 96d);
 
     public ChromeForm()
@@ -48,17 +49,8 @@ internal class ChromeForm : Form
         _ = SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x37); // FRAMECHANGED, no move/size/z-order/activate
     }
 
-    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-    {
-        if (keyData == (Keys.Alt | Keys.Space))
-        {
-            var point = PointToScreen(new Point(0, ScalePixel(48)));
-            var command = TrackPopupMenu(GetSystemMenu(Handle, false), 0x100, point.X, point.Y, 0, Handle, IntPtr.Zero);
-            if (command != 0) _ = SendMessage(Handle, 0x112, (IntPtr)command, IntPtr.Zero);
-            return true;
-        }
-        return base.ProcessCmdKey(ref msg, keyData);
-    }
+    // Keep Alt+Space on the native SC_KEYMENU path: Windows maintains the
+    // enabled/default commands for normal, maximized and minimized states.
 
     private static Point ScreenPoint(IntPtr value) => new(unchecked((short)(value.ToInt64() & 0xffff)), unchecked((short)((value.ToInt64() >> 16) & 0xffff)));
 
@@ -78,15 +70,16 @@ internal class ChromeForm : Form
             client.Top = original.Top;
             if (IsZoomed(Handle))
             {
-                // Maximize bounds include invisible resize borders. Clip against
-                // this monitor's work area, including top/left taskbars.
+                // rgrc[0] is the proposed screen rectangle. The HWND can still
+                // belong to the source monitor during Win+Shift+Arrow / DPI moves.
                 var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-                if (GetMonitorInfo(MonitorFromWindow(Handle, 2), ref info))
+                if (GetMonitorInfo(MonitorFromRect(ref original, 2), ref info))
                 {
                     client.Left = Math.Max(client.Left, info.Work.Left);
                     client.Top = Math.Max(client.Top, info.Work.Top);
                     client.Right = Math.Min(client.Right, info.Work.Right);
                     client.Bottom = Math.Min(client.Bottom, info.Work.Bottom);
+                    ReserveAutoHideEdge(ref client, info);
                 }
             }
             Marshal.StructureToPtr(client, m.LParam, false);
@@ -120,6 +113,28 @@ internal class ChromeForm : Form
             _ = DwmDefWindowProc(Handle, m.Msg, m.WParam, m.LParam, out _);
         }
         if (m.Msg == 0x2A2) maximize.Hot = false; // WM_NCMOUSELEAVE
+        if (m.Msg == 0xA3 && (int)m.WParam == 9) // WM_NCLBUTTONDBLCLK
+        {
+            // The first click already toggled. Consume the second down/up pair
+            // instead of invoking the default caption-button tracking/painting.
+            maxPressed = false;
+            suppressMaxRelease = true;
+            Capture = true;
+            m.Result = IntPtr.Zero;
+            return;
+        }
+        if (m.Msg == 0x202 && suppressMaxRelease)
+        {
+            suppressMaxRelease = false;
+            Capture = false;
+            m.Result = IntPtr.Zero;
+            return;
+        }
+        if (m.Msg == 0xA2 && (int)m.WParam == 9) // Uncaptured WM_NCLBUTTONUP
+        {
+            m.Result = IntPtr.Zero;
+            return;
+        }
         if (m.Msg == 0xA1 && (int)m.WParam == 9)
         {
             maxPressed = true;
@@ -135,10 +150,38 @@ internal class ChromeForm : Form
             m.Result = IntPtr.Zero;
             return;
         }
-        if (m.Msg == 0x215) maxPressed = false; // WM_CAPTURECHANGED
+        if (m.Msg == 0x215) { maxPressed = false; suppressMaxRelease = false; } // WM_CAPTURECHANGED
         base.WndProc(ref m);
     }
 
+    private static void ReserveAutoHideEdge(ref NativeRect client, MonitorInfo info)
+    {
+        var data = new AppBarData { Size = Marshal.SizeOf<AppBarData>() };
+        if ((SHAppBarMessage(4, ref data).ToUInt64() & 1) == 0) return; // ABM_GETSTATE / ABS_AUTOHIDE
+        for (uint edge = 0; edge < 4; edge++)
+        {
+            data = new AppBarData { Size = Marshal.SizeOf<AppBarData>(), Edge = edge, Rect = info.Monitor };
+            if (SHAppBarMessage(11, ref data) == UIntPtr.Zero) continue; // ABM_GETAUTOHIDEBAREX
+            // Physical pixels, independent of DPI. Do not double-inset an edge
+            // for which the work area already reserves enough space.
+            switch (edge)
+            {
+                case 0: client.Left = Math.Max(client.Left, info.Monitor.Left + 2); break;
+                case 1: client.Top = Math.Max(client.Top, info.Monitor.Top + 2); break;
+                case 2: client.Right = Math.Min(client.Right, info.Monitor.Right - 2); break;
+                case 3: client.Bottom = Math.Min(client.Bottom, info.Monitor.Bottom - 2); break;
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)] private struct AppBarData
+    {
+        public int Size;
+        public IntPtr Window;
+        public uint Callback, Edge;
+        public NativeRect Rect;
+        public IntPtr Parameter;
+    }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct Margins { public int Left, Right, Top, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
@@ -147,13 +190,11 @@ internal class ChromeForm : Form
     [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(IntPtr window, ref Margins margins);
     [DllImport("dwmapi.dll")] private static extern bool DwmDefWindowProc(IntPtr window, int message, IntPtr wParam, IntPtr lParam, out IntPtr result);
     [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr window);
-    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromRect(ref NativeRect rect, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
     [DllImport("user32.dll")] private static extern bool TrackMouseEvent(ref TrackMouse track);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
-    [DllImport("user32.dll")] private static extern IntPtr GetSystemMenu(IntPtr window, bool revert);
-    [DllImport("user32.dll")] private static extern int TrackPopupMenu(IntPtr menu, uint flags, int x, int y, int reserved, IntPtr window, IntPtr rect);
-    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+    [DllImport("shell32.dll")] private static extern UIntPtr SHAppBarMessage(uint message, ref AppBarData data);
 }
 
 internal sealed class CaptionButton : Button
@@ -178,11 +219,11 @@ internal sealed class CaptionButton : Button
     protected override void OnMouseLeave(EventArgs e) { Hot = false; base.OnMouseLeave(e); }
     protected override void OnPaint(PaintEventArgs e)
     {
-        e.Graphics.Clear(Hot ? DesignTheme.HighContrast ? SystemColors.Highlight : kind == 2 ? Color.FromArgb(196, 43, 28) : DesignTheme.Surface2 : DesignTheme.Ground);
+        e.Graphics.Clear(Hot ? DesignTheme.HighContrast ? SystemColors.Highlight : kind == 2 ? Color.FromArgb(196, 43, 28) : DesignTheme.Surface2 : DesignTheme.HighContrast ? SystemColors.ButtonFace : DesignTheme.Ground);
         var scale = DeviceDpi / 96f;
         e.Graphics.TranslateTransform(Width / 2f - 6 * scale, Height / 2f - 6 * scale);
         e.Graphics.ScaleTransform(scale, scale);
-        using var pen = new Pen(Hot && DesignTheme.HighContrast ? SystemColors.HighlightText : Hot && kind == 2 ? Color.White : DesignTheme.Muted, 1);
+        using var pen = new Pen(Hot && DesignTheme.HighContrast ? SystemColors.HighlightText : Hot && kind == 2 ? Color.White : DesignTheme.HighContrast ? SystemColors.ControlText : DesignTheme.Muted, 1);
         if (kind == 0) e.Graphics.DrawLine(pen, 1, 6, 11, 6);
         else if (kind == 2) { e.Graphics.DrawLine(pen, 1.5f, 1.5f, 10.5f, 10.5f); e.Graphics.DrawLine(pen, 10.5f, 1.5f, 1.5f, 10.5f); }
         else if (Restore) { e.Graphics.DrawLines(pen, new PointF[] { new(4, 3), new(4, 1), new(11, 1), new(11, 8), new(9, 8) }); e.Graphics.DrawRectangle(pen, 1, 4, 7, 7); }

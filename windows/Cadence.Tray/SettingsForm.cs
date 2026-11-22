@@ -7,7 +7,7 @@ namespace Cadence.Tray;
 
 internal sealed record SettingsSnapshot(TrayState State, string Status, SyncSummary Sync, string? Email,
     bool Configured, string Connection, string Problem, TodayTimeline? Timeline, bool ConfigurationUsable = true,
-    DateTimeOffset? NextChange = null, DateTimeOffset? LastSync = null, DateTimeOffset? Now = null, string? PreviewTimetableJson = null);
+    DateTimeOffset? NextChange = null, DateTimeOffset? LastSync = null, DateTimeOffset? Now = null, string? PreviewTimetableJson = null, bool Blocked = false);
 
 internal sealed class SettingsForm : ChromeForm
 {
@@ -60,6 +60,7 @@ internal sealed class SettingsForm : ChromeForm
     private bool highContrast = DesignTheme.HighContrast;
     private bool busy;
     private bool arranging;
+    private bool contentLoaded;
     private int page;
 
     public SettingsForm(SyncService service, List<string> executables, Func<List<string>, bool> saveExecutables,
@@ -133,7 +134,7 @@ internal sealed class SettingsForm : ChromeForm
         error.Visible = false;
         error.TextChanged += (_, _) => { error.Visible = error.Text.Length > 0; LayoutContent(); };
         scroll.Layout += (_, _) => LayoutContent(); root.Layout += (_, _) => LayoutContent();
-        ReloadExecutables(); SelectPage(0); ApplyTheme(); ResumeLayout(true);
+        SelectPage(0); ApplyTheme(); ResumeLayout(true);
         displayTimer.Tick += (_, _) => { if (Visible) UpdateClock(); };
         if (preview) return;
         displayTimer.Start();
@@ -156,10 +157,22 @@ internal sealed class SettingsForm : ChromeForm
         };
     }
 
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        // Initial WinForms autoscaling has completed. Dynamic rows now use the
+        // same physical DPI sizes as rows rebuilt after an add/remove operation.
+        contentLoaded = true;
+        ReloadExecutables();
+        RefreshContent();
+        PerformLayout();
+    }
+
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
         navigation[page].Focus();
+        RefreshContent();
     }
 
     private Panel Input(TextBox text)
@@ -201,7 +214,7 @@ internal sealed class SettingsForm : ChromeForm
         page = index;
         for (var i = 0; i < pages.Length; i++) { pages[i].Visible = i == page; navigation[i].Selected = i == page; navigation[i].Invalidate(); navigation[i].AccessibleDescription = i == page ? "選択中" : ""; }
         scroll.AutoScrollPosition = Point.Empty;
-        UpdateClock(); LayoutContent();
+        RefreshContent(); LayoutContent();
     }
 
     public void RefreshStatus(SettingsSnapshot value)
@@ -212,38 +225,46 @@ internal sealed class SettingsForm : ChromeForm
         if (first && !value.ConfigurationUsable) SelectPage(3);
         connection.Text = value.Connection;
         lastSync.Text = "最終同期  " + (value.LastSync is { } at ? ScheduleStatus.JapanTime(at) : "未取得");
-        problem.Text = value.Problem; problem.Visible = problem.Text.Length > 0;
+        problem.Text = value.Problem;
         account.Text = value.Email ?? "サインインしていません";
         emailHeading.Visible = passwordHeading.Visible = emailInput.Visible = passwordInput.Visible = signIn.Visible = value.Email is null;
         readOnlyNotice.Visible = signOut.Visible = value.Email is not null;
         signIn.Enabled = !busy && value.Configured; signOut.Enabled = !busy && value.Email is not null; reload.Enabled = !busy;
         if (highContrast != DesignTheme.HighContrast) { highContrast = DesignTheme.HighContrast; ApplyTheme(); }
         sidebar.AccessibleDescription = value.Sync.Text + "。" + (value.Email ?? "サインインしていません");
-        sidebar.Invalidate(); UpdateClock();
+        sidebar.Invalidate(); RefreshContent();
     }
 
+    private DateTimeOffset DisplayNow => preview ? snapshot?.Now ?? DateTimeOffset.Parse("2026-01-05T19:20:00+09:00", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow;
+
+    // The one-second timer does no parsing, expansion, file I/O, row creation or explicit layout.
     private void UpdateClock()
     {
-        if (snapshot is not { } value) return;
-        var now = preview ? value.Now ?? DateTimeOffset.Parse("2026-01-05T19:20:00+09:00", CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow;
-        if (!preview && (now - readAt >= TimeSpan.FromSeconds(10) || now < readAt || now.ToOffset(TimeSpan.FromHours(9)).Date != readAt.ToOffset(TimeSpan.FromHours(9)).Date))
+        if (!contentLoaded || page != 0 || snapshot is not { } value) return;
+        var now = DisplayNow;
+        subtitle.Text = TrayPresentation.Countdown(value.Blocked, value.NextChange, now);
+        timeline.SetNow(now);
+    }
+
+    private void RefreshContent()
+    {
+        if (!contentLoaded || snapshot is not { } value) return;
+        var now = DisplayNow;
+        if (!preview && Visible && (now - readAt >= TimeSpan.FromSeconds(10) || now < readAt || now.ToOffset(TimeSpan.FromHours(9)).Date != readAt.ToOffset(TimeSpan.FromHours(9)).Date))
         { logged = log?.Read(now) ?? []; readAt = now; UpdateCounts(now); }
         heading.Text = page switch { 1 => "ブロックするアプリ", 2 => "アカウント", 3 => "接続と詳細", _ => value.State == TrayState.Focus ? "いまは集中の時間" : value.State == TrayState.Free ? "いまは自由時間" : value.Status };
         pill.Text = page == 1 ? executables.Count + " APPS" : value.State.ToString().ToUpperInvariant();
         statusRow.Visible = page is 0 or 1;
         pillSurface.Fill = page == 1 ? DesignTheme.Surface2 : DesignTheme.StateColor(value.State);
+        if (DesignTheme.HighContrast && page == 0) pillSurface.Fill = SystemColors.Highlight;
         pill.BackColor = pillSurface.Fill; pill.ForeColor = page == 1 ? DesignTheme.Text : DesignTheme.HighContrast ? SystemColors.HighlightText : DesignTheme.Ground;
         subtitle.Text = page == 1 ? "集中の時間になると、この PC で自動的に終了します" : "次の切り替えはありません";
-        if (page == 0 && value.NextChange is { } next)
-        {
-            var remaining = Math.Max(0, (int)(next - now).TotalSeconds);
-            subtitle.Text = Time(next) + (value.State == TrayState.Focus ? " まで · 残り " : " から · あと ") + $"{remaining / 60:00}:{remaining % 60:00}";
-        }
-        var today = preview ? value.Timeline : TodayTimeline.Build(service?.State.TimetableJson, now);
+        var today = value.Timeline;
+        problem.Visible = problem.Text.Length > 0 && !(page == 0 && value.State == TrayState.Alert && problem.Text == heading.Text);
         pattern.Text = today?.Name ?? "今日の予定はありません";
         windowSummary.Text = today is null ? "" : $"{Time(today.Start)} – {Time(today.End)} · {today.Summary}";
         timeline.SetTimeline(today);
-        nextChange.Text = value.NextChange is { } change ? "次の切り替え  " + Time(change) + " → " + (service is not null ? ScheduleStatus.Evaluate(service.State.Timetable, TimeProvider.System).Blocked ? "FREE" : "FOCUS" : value.State == TrayState.Focus ? "FREE" : "FOCUS") : "次の切り替えはありません（14日以内）";
+        nextChange.Text = value.NextChange is { } change ? "次の切り替え  " + Time(change) + " → " + (value.Blocked ? "FREE" : "FOCUS") : "次の切り替えはありません（14日以内）";
         card.Outline = value.State == TrayState.Focus ? DesignTheme.HighContrast ? DesignTheme.Focus : Color.FromArgb(96, 74, 40) : null;
         card.Invalidate();
         var events = TodayActivity.Build(logged, preview ? TimetableParser.Parse(value.PreviewTimetableJson).Timetable : service?.State.Timetable, now);
@@ -262,6 +283,7 @@ internal sealed class SettingsForm : ChromeForm
             }
             if (events.Count == 0) { var empty = Label("今日の記録はまだありません"); theme.Apply(empty); activity.Controls.Add(empty); }
         }
+        UpdateClock();
         LayoutContent();
     }
 
@@ -310,6 +332,17 @@ internal sealed class SettingsForm : ChromeForm
     }
 
     private static string Time(DateTimeOffset at) => at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture);
+    internal void VerifyPreviewRows()
+    {
+        if (!preview || !contentLoaded) throw new InvalidOperationException("Preview must be loaded first.");
+        var before = list.Controls.OfType<RoundPanel>().Select(row => row.Height).ToArray();
+        if (before.Length != executables.Count || before.Any(height => height != ScalePixel(60)))
+            throw new InvalidOperationException("Initial executable rows were scaled more than once.");
+        ReloadExecutables();
+        var after = list.Controls.OfType<RoundPanel>().Select(row => row.Height).ToArray();
+        if (!before.SequenceEqual(after)) throw new InvalidOperationException("Rebuilt executable rows changed height.");
+    }
+
     internal void ScrollPreviewToRightEdge()
     {
         LayoutContent(); scroll.AutoScrollPosition = new Point(scroll.HorizontalScroll.Maximum, 0);
@@ -415,7 +448,7 @@ internal sealed class SettingsForm : ChromeForm
             void Hover(bool hot) { row.Fill = hot ? DesignTheme.Surface : DesignTheme.Ground; foreach (Control child in row.Controls) child.BackColor = row.Fill; row.Invalidate(); }
             row.MouseEnter += (_, _) => Hover(true); row.MouseLeave += (_, _) => { if (!row.ClientRectangle.Contains(row.PointToClient(Cursor.Position))) Hover(false); };
             foreach (Control child in row.Controls) { child.MouseEnter += (_, _) => Hover(true); child.MouseLeave += (_, _) => { if (!row.ClientRectangle.Contains(row.PointToClient(Cursor.Position))) Hover(false); }; }
-            remove.Click += (_, _) => { var proposed = executables.ToList(); proposed.Remove(name); if (saveExecutables(proposed)) { ReloadExecutables(); UpdateClock(); executable.Focus(); } };
+            remove.Click += (_, _) => { var proposed = executables.ToList(); proposed.Remove(name); if (saveExecutables(proposed)) { ReloadExecutables(); RefreshContent(); executable.Focus(); } };
             theme.Apply(row); count.ForeColor = DesignTheme.Muted; Hover(false); list.Controls.Add(row);
         }
         if (executables.Count == 0) { var empty = Label("exe は登録されていません"); theme.Apply(empty); list.Controls.Add(empty); }

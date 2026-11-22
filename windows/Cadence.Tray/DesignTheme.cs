@@ -5,7 +5,9 @@ namespace Cadence.Tray;
 
 internal sealed class DesignTheme : IDisposable
 {
-    public static bool HighContrast => SystemInformation.HighContrast;
+    // Only the synthetic preview entry point sets this; never change the OS theme.
+    internal static bool PreviewHighContrast { get; set; }
+    public static bool HighContrast => PreviewHighContrast || SystemInformation.HighContrast;
     public static Color Ground => HighContrast ? SystemColors.Window : ColorTranslator.FromHtml("#0B1216");
     public static Color Surface => HighContrast ? SystemColors.Window : ColorTranslator.FromHtml("#131D22");
     public static Color Surface2 => HighContrast ? SystemColors.Control : ColorTranslator.FromHtml("#1A272D");
@@ -37,12 +39,14 @@ internal sealed class DesignTheme : IDisposable
         control.ForeColor = Text;
         if (control is Button button)
         {
-            button.FlatStyle = HighContrast ? FlatStyle.System : FlatStyle.Flat;
+            // System disables UserPaint/OwnerDraw in ButtonBase. These controls must
+            // keep OnPaint even when their palette comes from SystemColors.
+            button.FlatStyle = HighContrast && button is not (CaptionButton or RoundButton) ? FlatStyle.System : FlatStyle.Flat;
             button.FlatAppearance.BorderColor = Line;
             button.FlatAppearance.MouseOverBackColor = Surface;
             button.FlatAppearance.MouseDownBackColor = Ground;
         }
-        if (control is CheckBox check) check.FlatStyle = HighContrast ? FlatStyle.System : FlatStyle.Flat;
+        if (control is CheckBox check) check.FlatStyle = HighContrast && check is not ToggleSwitch ? FlatStyle.System : FlatStyle.Flat;
         if (control is TextBox text) text.BorderStyle = BorderStyle.FixedSingle;
         foreach (Control child in control.Controls) Apply(child);
         control.HandleCreated -= OnHandleCreated;

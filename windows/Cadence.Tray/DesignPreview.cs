@@ -38,7 +38,7 @@ internal static class DesignPreview
         const string json = """{"schemaVersion":1,"timeZone":"Asia/Tokyo","patterns":[{"id":"preview","name":"合成の予定","enabled":true,"weekdays":[1,2,3,4,5,6,7],"start":"19:00","end":"22:00","segments":[{"kind":"free","minutes":10},{"kind":"block","minutes":20}]}]}""";
         var now = DateTimeOffset.Parse("2026-01-05T19:20:00+09:00", CultureInfo.InvariantCulture);
         var snapshots = new[] {
-            new SettingsSnapshot(TrayState.Focus, "集中の時間 · 19:30 まで", TrayPresentation.Synchronization(true, now.AddMinutes(-1), false), "user@example.com", true, "接続設定を読み込みました（合成データ）", "", TodayTimeline.Build(json, now), NextChange: now.AddMinutes(10), LastSync: now.AddMinutes(-1), Now: now, PreviewTimetableJson: json),
+            new SettingsSnapshot(TrayState.Focus, "集中の時間 · 19:30 まで", TrayPresentation.Synchronization(true, now.AddMinutes(-1), false), "user@example.com", true, "接続設定を読み込みました（合成データ）", "", TodayTimeline.Build(json, now), NextChange: now.AddMinutes(10), LastSync: now.AddMinutes(-1), Now: now, PreviewTimetableJson: json, Blocked: true),
             new SettingsSnapshot(TrayState.Free, "自由時間 · 次は 19:10 から", TrayPresentation.Synchronization(true, now.AddMinutes(-20), false), null, true, "接続設定を読み込みました（合成データ）", "", TodayTimeline.Build(json, now.AddMinutes(-15)), NextChange: now.AddMinutes(-10), LastSync: now.AddMinutes(-20), Now: now.AddMinutes(-15), PreviewTimetableJson: json),
             new SettingsSnapshot(TrayState.Alert, "時間割を読み込めません", TrayPresentation.Synchronization(false, null, true), null, false, "接続設定がありません（合成データ）", "サインインが必要です", null, false)
         };
@@ -70,12 +70,48 @@ internal static class DesignPreview
             form.Size = form.MinimumSize;
             form.Show();
             Application.DoEvents();
+            form.VerifyPreviewRows();
             form.ScrollPreviewToRightEdge();
             Application.DoEvents();
             using var bitmap = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
             bitmap.Save(Path.Combine(directory, "settings-minimum-right.png"), ImageFormat.Png);
             form.Close();
+        }
+        var blockedAlert = snapshots[0] with { State = TrayState.Alert, Status = "サインインが必要です", Problem = "サインインが必要です" };
+        using (var form = SettingsForm.Preview(blockedAlert))
+        {
+            form.Show();
+            Application.DoEvents();
+            using var bitmap = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+            bitmap.Save(Path.Combine(directory, "settings-alert-blocked.png"), ImageFormat.Png);
+            form.Close();
+        }
+        DesignTheme.PreviewHighContrast = true;
+        try
+        {
+            using var form = SettingsForm.Preview(snapshots[0]);
+            form.SelectPage(1);
+            form.Show();
+            Application.DoEvents();
+            form.VerifyPreviewRows();
+            VerifyOwnerDrawing(form);
+            using var bitmap = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+            bitmap.Save(Path.Combine(directory, "settings-high-contrast.png"), ImageFormat.Png);
+            form.Close();
+        }
+        finally { DesignTheme.PreviewHighContrast = false; }
+    }
+
+    private static void VerifyOwnerDrawing(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            if (child is CaptionButton or RoundButton or ToggleSwitch && ((ButtonBase)child).FlatStyle == FlatStyle.System)
+                throw new InvalidOperationException("Custom controls must remain owner-drawn in high contrast.");
+            VerifyOwnerDrawing(child);
         }
     }
 }

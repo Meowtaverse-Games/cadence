@@ -7,6 +7,7 @@ namespace Cadence.Tray;
 internal sealed class TimelineControl : Control
 {
     private TodayTimeline? timeline;
+    private double? nowFraction;
     public TimelineControl()
     {
         DoubleBuffered = true;
@@ -17,8 +18,17 @@ internal sealed class TimelineControl : Control
     public void SetTimeline(TodayTimeline? value)
     {
         timeline = value;
+        nowFraction = value?.NowFraction;
         AccessibleDescription = value is null ? "今日の予定はありません" :
             $"{Time(value.Start)} から {Time(value.End)}。斜線は集中、無地は自由。";
+        Invalidate();
+    }
+    public void SetNow(DateTimeOffset now)
+    {
+        var fraction = timeline is { } value && now >= value.Start && now < value.End
+            ? (double?)((now - value.Start).TotalSeconds / (value.End - value.Start).TotalSeconds) : null;
+        if (fraction == nowFraction) return;
+        nowFraction = fraction;
         Invalidate();
     }
     private static string Time(DateTimeOffset at) => at.ToOffset(TimeSpan.FromHours(9)).ToString("HH:mm", CultureInfo.InvariantCulture);
@@ -41,7 +51,7 @@ internal sealed class TimelineControl : Control
             using var path = Shapes.Round(new RectangleF(x, top, Math.Max(1, end - x - 3 * scale), height), 6 * scale);
             e.Graphics.FillPath(brush, path);
         }
-        if (value.NowFraction is { } fraction)
+        if (nowFraction is { } fraction)
         {
             using var pen = new Pen(DesignTheme.Text, 2 * scale);
             var x = (float)fraction * width;

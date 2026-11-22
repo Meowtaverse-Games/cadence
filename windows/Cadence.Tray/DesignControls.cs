@@ -68,8 +68,11 @@ internal class RoundButton : Button
     {
         e.Graphics.Clear(BackColor);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var fill = Primary ? DesignTheme.Focus : Selected || hot ? DesignTheme.Surface2 : BackColor;
-        var text = !Enabled ? SystemColors.GrayText : Primary ? DesignTheme.HighContrast ? SystemColors.HighlightText : DesignTheme.Ground : Navigation && !Selected ? DesignTheme.Muted : DesignTheme.Text;
+        var highlighted = Primary || Selected || hot;
+        var fill = DesignTheme.HighContrast ? highlighted ? SystemColors.Highlight : SystemColors.ButtonFace
+            : Primary ? DesignTheme.Focus : Selected || hot ? DesignTheme.Surface2 : BackColor;
+        var text = !Enabled ? SystemColors.GrayText : DesignTheme.HighContrast ? highlighted ? SystemColors.HighlightText : SystemColors.ControlText
+            : Primary ? DesignTheme.Ground : Navigation && !Selected ? DesignTheme.Muted : DesignTheme.Text;
         using var path = Shapes.Round(new RectangleF(1, 1, Width - 2, Height - 2), Navigation ? 12 * DeviceDpi / 96f : Height / 2f);
         using var brush = new SolidBrush(fill);
         e.Graphics.FillPath(brush, path);
