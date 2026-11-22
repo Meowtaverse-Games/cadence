@@ -73,7 +73,30 @@ struct GroupStore {
         try locked("timetable") { try write(timetable, file: "timetable.json") }
     }
 
-    func selection() -> FamilyActivitySelection? { read("selection.json", as: FamilyActivitySelection.self) }
+    struct SelectionSnapshot {
+        let value: FamilyActivitySelection?
+        let state: SelectionReadState
+    }
+
+    func selectionSnapshot() -> SelectionSnapshot {
+        do {
+            let location = try url("selection.json")
+            let data: Data
+            do { data = try Data(contentsOf: location) }
+            catch let error as NSError where error.domain == NSCocoaErrorDomain
+                && (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
+                return SelectionSnapshot(value: nil, state: .missing)
+            }
+            let value = try JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+            let empty = value.applicationTokens.isEmpty && value.categoryTokens.isEmpty && value.webDomainTokens.isEmpty
+            return SelectionSnapshot(value: value, state: empty ? .empty : .populated)
+        } catch {
+            record("readFailure file=selection.json reason=\(Self.reason(error)); treatedAsMissing=false")
+            return SelectionSnapshot(value: nil, state: .unreadable)
+        }
+    }
+
+    func selection() -> FamilyActivitySelection? { selectionSnapshot().value }
     func save(_ selection: FamilyActivitySelection) throws {
         try locked("selection") { try write(selection, file: "selection.json") }
     }

@@ -45,14 +45,14 @@ final class AppModel: ObservableObject {
             }
     }
 
-    func scheduleRefresh(_ event: String) {
+    func scheduleRefresh(_ event: String, reset: Bool = false) {
         // Refresh authorization/status before enqueueing; never wait for DeviceActivityCenter.
         updateStatus()
-        AppRefreshService.shared.request(event)
+        AppRefreshService.shared.request(event, reset: reset)
     }
 
     func refresh(_ event: String) {
-        scheduleRefresh(event)
+        scheduleRefresh(event, reset: true)
     }
 
     func updateStatus() {

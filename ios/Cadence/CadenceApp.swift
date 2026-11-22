@@ -41,7 +41,7 @@ struct CadenceApp: App {
                     if phase == .background { AppDelegate.scheduleRefresh() }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
-                    model.scheduleRefresh("本体の再登録/タイムゾーン変更")
+                    model.scheduleRefresh("本体の再登録/タイムゾーン変更", reset: true)
                 }
         }
     }
