@@ -1,26 +1,9 @@
 import Foundation
 import CadenceCore
 
-struct LocalTimetable: Codable {
-    var schemaVersion = 1
-    var timeZone = "Asia/Tokyo"
-    var patterns: [LocalPattern] = []
-}
-
-struct LocalPattern: Codable, Identifiable {
-    var id = UUID().uuidString
-    var name = "新しいパターン"
-    var enabled = true
-    var weekdays = [1, 2, 3, 4, 5]
-    var start = "19:00"
-    var end = "20:00"
-    var segments = [LocalSegment(kind: "block", minutes: 25), LocalSegment(kind: "free", minutes: 5)]
-}
-
-struct LocalSegment: Codable {
-    var kind: String
-    var minutes: Int
-}
+typealias LocalTimetable = SyncTimetable
+typealias LocalPattern = SyncPattern
+typealias LocalSegment = SyncSegment
 
 struct ValidationFailure: LocalizedError {
     let code: String

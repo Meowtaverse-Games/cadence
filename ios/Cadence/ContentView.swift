@@ -38,6 +38,8 @@ struct ContentView: View {
                     }.disabled(!model.authorization.isApprovedForCadence)
                     Text("アプリ \(model.selection.applicationTokens.count)・カテゴリ \(model.selection.categoryTokens.count)・Web ドメイン \(model.selection.webDomainTokens.count)")
                 }
+                SyncSection(sync: model.sync, local: model.document)
+                if model.sync.editingBlocked { Text(model.sync.editingReason).font(.footnote) }
                 Section("時間割（日本時間）") {
                     ForEach(model.document.patterns) { item in
                         Button { editing = item } label: {
@@ -56,6 +58,7 @@ struct ContentView: View {
                     Button("パターンを追加") { editing = LocalPattern() }
                         .disabled(model.document.patterns.count >= 20)
                 }
+                .disabled(model.sync.editingBlocked)
                 if let error = model.error { Text(error).foregroundStyle(.red) }
                 NavigationLink("記録") { LogView() }
             }
