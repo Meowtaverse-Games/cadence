@@ -25,7 +25,7 @@ struct CadenceDesignPreview: View {
     }
     var body: some View {
         switch screen {
-        case "editor":
+        case "editor", "editor-large":
             PatternEditorScreen(document: Self.document, pattern: Self.document.patterns[0]) { _ in nil }
         case "first-link":
             NavigationStack {
@@ -64,7 +64,7 @@ private struct ShieldPreview: View {
         VStack(spacing: 0) {
             Spacer()
             Image(uiImage: CadenceMark.image()).resizable().frame(width: 112, height: 112).accessibilityLabel("Cadence のアイコン")
-            Text("集中の時間です").font(.title.weight(.bold)).padding(.top, 28)
+            Text("集中の時間です").font(Theme.shieldTitle).padding(.top, 28)
             Text("20:30 まで").foregroundStyle(Theme.muted).padding(.top, 10)
             Spacer()
             Button {} label: { Text("閉じる").frame(maxWidth: .infinity).padding(.vertical, 4) }

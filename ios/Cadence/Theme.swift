@@ -13,6 +13,13 @@ enum Theme {
     static let alert = Color(uiColor: CadencePalette.alert)
     static let radius: CGFloat = 16
     static let spacing: CGFloat = 16
+    static let title = Font.title2.weight(.bold)
+    static let shieldTitle = Font.title.weight(.bold)
+    static let headline = Font.headline
+    static let body = Font.subheadline
+    static let footnote = Font.footnote
+    static let caption = Font.caption
+    static let inputNumber = Font.system(.title3, design: .monospaced)
     static let mono = Font.system(.caption, design: .monospaced)
     static let tag = Font.system(.caption, design: .monospaced).weight(.bold)
     static let clock = Font.system(.largeTitle, design: .monospaced).weight(.semibold)

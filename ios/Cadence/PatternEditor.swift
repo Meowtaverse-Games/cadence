@@ -40,12 +40,12 @@ struct PatternEditorScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.spacing) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("パターン名").font(.caption).foregroundStyle(Theme.muted)
+                        Text("パターン名").font(Theme.caption).foregroundStyle(Theme.muted)
                         TextField("名前", text: $pattern.name).cadenceField()
                         Toggle("有効", isOn: $pattern.enabled).tint(Theme.focus).frame(minHeight: 44)
                     }.cadenceCard()
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("曜日").font(.headline)
+                        Text("曜日").font(Theme.headline)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 4) {
                                 ForEach(1...7, id: \.self) { day in
@@ -65,8 +65,8 @@ struct PatternEditorScreen: View {
                         VStack { timeField("開始", text: $pattern.start); timeField("終了", text: $pattern.end) }
                     }
                     Text("日本時間。終了が開始より前なら翌日、同じなら24時間です。")
-                        .font(.footnote).foregroundStyle(Theme.muted)
-                    Text("テンプレート").font(.headline)
+                        .font(Theme.footnote).foregroundStyle(Theme.muted)
+                    Text("テンプレート").font(Theme.headline)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             Button("集25 / 自5") { template("block", 25, "free", 5) }.accessibilityLabel("ブロック25分、自由5分")
@@ -74,12 +74,12 @@ struct PatternEditorScreen: View {
                             Button("自10 / 集20") { template("free", 10, "block", 20) }.accessibilityLabel("自由10分、ブロック20分")
                         }.buttonStyle(CadenceButtonStyle())
                     }
-                    Text("1サイクル（くり返し）").font(.headline)
+                    Text("1サイクル（くり返し）").font(Theme.headline)
                     ForEach(Array(rows.indices), id: \.self) { index in segmentRow(index) }
                     Button("＋ セグメントを追加") { rows.append(SegmentRow(kind: "block", minutes: "15")) }
                         .buttonStyle(CadenceButtonStyle()).disabled(rows.count >= 20)
                     preview
-                    if let error { Text(error).font(.footnote).foregroundStyle(Theme.alert) }
+                    if let error { Text(error).font(Theme.footnote).foregroundStyle(Theme.alert) }
                     if document.patterns.contains(where: { sameID($0) }) {
                         Button("パターンを削除", role: .destructive) {
                             var candidate = document
@@ -90,7 +90,7 @@ struct PatternEditorScreen: View {
                 }.padding(Theme.spacing).disabled(editingBlocked)
             }
             .safeAreaInset(edge: .bottom) {
-                if editingBlocked { Text(editingReason).font(.footnote).foregroundStyle(Theme.muted).padding().background(Theme.ground) }
+                if editingBlocked { Text(editingReason).font(Theme.footnote).foregroundStyle(Theme.muted).padding().background(Theme.ground) }
             }
             .navigationTitle("PATTERN").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -104,7 +104,7 @@ struct PatternEditorScreen: View {
 
     private func timeField(_ title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.caption).foregroundStyle(Theme.muted)
+            Text(title).font(Theme.caption).foregroundStyle(Theme.muted)
             TextField("HH:mm", text: text).font(Theme.clock).keyboardType(.numbersAndPunctuation)
                 .accessibilityLabel("\(title)時刻、日本時間").cadenceField()
         }
@@ -121,9 +121,9 @@ struct PatternEditorScreen: View {
             }
             Spacer(minLength: 0)
             TextField("分", text: $rows[index].minutes).keyboardType(.numberPad)
-                .font(.system(.title3, design: .monospaced)).frame(minWidth: 44, maxWidth: 60).cadenceField()
+                .font(Theme.inputNumber).frame(minWidth: 44, maxWidth: 60).cadenceField()
                 .accessibilityLabel("セグメント\(index + 1)の分数")
-            Text("分").font(.caption).foregroundStyle(Theme.muted)
+            Text("分").font(Theme.caption).foregroundStyle(Theme.muted)
             Menu {
                 Button { rows.swapAt(index, index - 1) } label: { Label("上へ移動", systemImage: "arrow.up") }.disabled(index == 0)
                 Button { rows.swapAt(index, index + 1) } label: { Label("下へ移動", systemImage: "arrow.down") }.disabled(index == rows.count - 1)
@@ -141,14 +141,14 @@ struct PatternEditorScreen: View {
                 let validation = TimetableParser.parse(object: replacingPattern(candidate).fields)
                 if let code = validation.errorCode {
                     Text(ValidationFailure(code: code).errorDescription ?? "入力を確認してください。")
-                        .font(.footnote).foregroundStyle(Theme.alert)
+                        .font(Theme.footnote).foregroundStyle(Theme.alert)
                 } else if let window = previewWindow(candidate) {
                     WindowBar(window: window, name: candidate.name)
                 } else {
                     Text("無効なパターンです。ブロックを含むサイクルを設定するとプレビューできます。")
-                        .font(.footnote).foregroundStyle(Theme.muted)
+                        .font(Theme.footnote).foregroundStyle(Theme.muted)
                 }
-            } else { Text(ValidationFailure(code: "segment_minutes").errorDescription ?? "分数を確認してください。").font(.footnote).foregroundStyle(Theme.alert) }
+            } else { Text(ValidationFailure(code: "segment_minutes").errorDescription ?? "分数を確認してください。").font(Theme.footnote).foregroundStyle(Theme.alert) }
         }.cadenceCard()
     }
     private func previewWindow(_ candidate: LocalPattern) -> DisplayWindow? {

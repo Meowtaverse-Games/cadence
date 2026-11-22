@@ -188,7 +188,7 @@ jobs:
           output = Path(os.environ["RUNNER_TEMP"]) / "ios-design-preview"
           output.mkdir()
           import time
-          for screen in ["home-focus", "home-free", "home-idle", "editor", "first-link", "sync", "shield"]:
+          for screen in ["home-focus", "home-free", "home-idle", "editor", "first-link", "sync", "shield", "home-focus-large", "editor-large"]:
               subprocess.run(["xcrun", "simctl", "terminate", udid, "com.meowtaverse-games.cadence"], check=False)
               run("xcrun", "simctl", "launch", udid, "com.meowtaverse-games.cadence", "-CadenceDesignPreview", screen)
               time.sleep(3)

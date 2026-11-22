@@ -135,7 +135,8 @@ Debug の起動引数 `-CadenceDesignPreview <画面名>` は実サービスを�
 Release にはこの入口を含めない。shield のプレビューは OS の配置を再現するものではなく、
 設定できる色・マーク・文言を確認するための SwiftUI 表示。
 CI の `design-preview` は1種類の iPhone シミュレーターで起動・撮影し、
-`ios-design-preview` artifact に7枚を保存する（14日間）。
+`ios-design-preview` artifact に9枚を保存する（14日間）。
+`home-focus-large` と `editor-large` はアクセシビリティ用の大きな文字で表示する。
 
 時間帯バー用の `TimetableDisplay` は表示専用の純粋関数。
 既存の `TimetableExpander` のブロック区間と、その補集合を使い、登録・保存の規則は変えない。

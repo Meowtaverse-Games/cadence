@@ -36,7 +36,9 @@ struct CadenceApp: App {
         WindowGroup {
             #if DEBUG
             if let preview = CadenceDesignPreview.requested {
-                CadenceDesignPreview(screen: preview).preferredColorScheme(.dark)
+                CadenceDesignPreview(screen: preview)
+                    .dynamicTypeSize(preview.hasSuffix("-large") ? .accessibility3 : .large)
+                    .preferredColorScheme(.dark)
             } else { LiveRoot() }
             #else
             LiveRoot()
