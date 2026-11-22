@@ -15,6 +15,7 @@ internal class ChromeForm : Form
     public ChromeForm()
     {
         FormBorderStyle = FormBorderStyle.Sizable;
+        minimize.TabIndex = 10; maximize.TabIndex = 11; close.TabIndex = 12;
         Controls.AddRange([minimize, maximize, close]);
         minimize.Click += (_, _) => WindowState = FormWindowState.Minimized;
         maximize.Click += (_, _) => ToggleMaximize();

@@ -1,12 +1,13 @@
 using System.Diagnostics;
 using System.Globalization;
 using Cadence.Tray.Logic;
+using Cadence.Core;
 
 namespace Cadence.Tray;
 
 internal sealed record SettingsSnapshot(TrayState State, string Status, SyncSummary Sync, string? Email,
     bool Configured, string Connection, string Problem, TodayTimeline? Timeline, bool ConfigurationUsable = true,
-    DateTimeOffset? NextChange = null, DateTimeOffset? LastSync = null, DateTimeOffset? Now = null);
+    DateTimeOffset? NextChange = null, DateTimeOffset? LastSync = null, DateTimeOffset? Now = null, string? PreviewTimetableJson = null);
 
 internal sealed class SettingsForm : ChromeForm
 {
@@ -19,8 +20,8 @@ internal sealed class SettingsForm : ChromeForm
     private readonly bool preview;
     private readonly DesignTheme theme = new();
     private readonly System.Windows.Forms.Timer displayTimer = new() { Interval = 1000 };
-    private readonly Panel scroll = new() { AutoScroll = true };
-    private readonly SidebarPanel sidebar = new();
+    private readonly Panel scroll = new() { AutoScroll = true, TabIndex = 1 };
+    private readonly SidebarPanel sidebar = new() { TabIndex = 0, AccessibleName = "メニュー" };
     private readonly TableLayoutPanel root = Column();
     private readonly TableLayoutPanel[] pages = [Column(), Column(), Column(), Column()];
     private readonly RoundButton[] navigation = [new(), new(), new(), new()];
@@ -104,7 +105,7 @@ internal sealed class SettingsForm : ChromeForm
         }
         pattern.Font = theme.Body; windowSummary.Font = theme.Mono; nextChange.Font = theme.Mono;
         card.Controls.AddRange([pattern, windowSummary, timeline, nextChange]);
-        foreach (var label in new[] { pattern, windowSummary, nextChange }) { label.Dock = DockStyle.None; label.AutoSize = false; }
+        foreach (var label in new[] { pattern, windowSummary, nextChange }) { label.Dock = DockStyle.None; label.AutoSize = false; label.AutoEllipsis = true; }
         card.Layout += (_, _) =>
         {
             var inset = ScalePixel(28); var width = card.Width - inset * 2;
@@ -115,11 +116,12 @@ internal sealed class SettingsForm : ChromeForm
         };
         pages[0].Controls.AddRange([card, Label("今日の記録", theme.Caption), activity]);
         var add = Button("追加", true); add.Dock = DockStyle.None;
-        var input = Input(executable); input.Dock = DockStyle.Fill;
+        var input = Input(executable); input.Dock = DockStyle.Fill; input.Margin = Padding.Empty;
         var plus = Label("＋"); plus.Dock = DockStyle.None; plus.AutoSize = false; input.Controls.AddRange([plus, add]);
         input.Layout += (_, _) => { plus.SetBounds(ScalePixel(12), ScalePixel(12), ScalePixel(22), ScalePixel(26)); executable.SetBounds(ScalePixel(40), ScalePixel(13), Math.Max(ScalePixel(80), input.Width - ScalePixel(132)), ScalePixel(24)); add.SetBounds(input.Width - ScalePixel(80), ScalePixel(6), ScalePixel(72), ScalePixel(36)); };
-        var running = Button("実行中のアプリから選ぶ"); running.Dock = DockStyle.Fill;
-        var inputRow = new TableLayoutPanel { Dock = DockStyle.Top, Height = 52, ColumnCount = 2, Margin = new Padding(0, 0, 0, 20) };
+        var running = Button("実行中のアプリから選ぶ"); running.Dock = DockStyle.Fill; running.Margin = new Padding(10, 0, 0, 0);
+        var inputRow = new TableLayoutPanel { Dock = DockStyle.Top, Height = 48, ColumnCount = 2, Margin = new Padding(0, 0, 0, 20) };
+        inputRow.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         inputRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); inputRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
         inputRow.Controls.Add(input, 0, 0); inputRow.Controls.Add(running, 1, 0);
         pages[1].Controls.AddRange([Label("追加する exe 名", theme.Caption), inputRow, list]);
@@ -152,6 +154,12 @@ internal sealed class SettingsForm : ChromeForm
             try { StartupRegistration.Set(startup.Checked); }
             catch { error.Text = "自動起動の設定を保存できません。"; log?.Write("startup_write_failed"); startup.Enabled = false; }
         };
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        navigation[page].Focus();
     }
 
     private Panel Input(TextBox text)
@@ -238,9 +246,7 @@ internal sealed class SettingsForm : ChromeForm
         nextChange.Text = value.NextChange is { } change ? "次の切り替え  " + Time(change) + " → " + (service is not null ? ScheduleStatus.Evaluate(service.State.Timetable, TimeProvider.System).Blocked ? "FREE" : "FOCUS" : value.State == TrayState.Focus ? "FREE" : "FOCUS") : "次の切り替えはありません（14日以内）";
         card.Outline = value.State == TrayState.Focus ? DesignTheme.HighContrast ? DesignTheme.Focus : Color.FromArgb(96, 74, 40) : null;
         card.Invalidate();
-        var events = TodayActivity.Build(logged, service?.State.Timetable, now);
-        if (preview && events.Count == 0 && page == 0 && value.State != TrayState.Alert)
-            events = [new(now.AddMinutes(-2), TrayState.Focus, "game.exe を終了しました"), new(now.AddMinutes(-10), TrayState.Focus, "集中の時間が始まりました")];
+        var events = TodayActivity.Build(logged, preview ? TimetableParser.Parse(value.PreviewTimetableJson).Timetable : service?.State.Timetable, now);
         var key = string.Join("|", events.Select(e => e.At + e.Message));
         if (!Equals(activity.Tag, key))
         {

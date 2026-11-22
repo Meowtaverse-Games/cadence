@@ -38,7 +38,17 @@ internal class RoundPanel : Panel
 internal class RoundButton : Button
 {
     public bool Primary { get; set; }
-    public bool Selected { get; set; }
+    private bool selected;
+    public bool Selected
+    {
+        get => selected;
+        set
+        {
+            if (selected == value) return;
+            selected = value; Invalidate();
+            if (IsHandleCreated) AccessibilityNotifyClients(AccessibleEvents.StateChange, -1);
+        }
+    }
     public bool Border { get; set; } = true;
     public bool Navigation { get; set; }
     public int IconKind { get; set; } = -1;
@@ -49,7 +59,7 @@ internal class RoundButton : Button
     protected override AccessibleObject CreateAccessibilityInstance() => Navigation ? new SelectionAccessibleObject(this) : base.CreateAccessibilityInstance();
     private sealed class SelectionAccessibleObject(RoundButton owner) : ControlAccessibleObject(owner)
     {
-        public override AccessibleRole Role => AccessibleRole.PushButton;
+        public override AccessibleRole Role => AccessibleRole.PageTab;
         public override string DefaultAction => "選択";
         public override void DoDefaultAction() => owner.PerformClick();
         public override AccessibleStates State => base.State | (owner.Selected ? AccessibleStates.Selected : 0);
