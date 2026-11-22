@@ -5,6 +5,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     static let refreshIdentifier = "com.meowtaverse-games.cadence.refresh"
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        #if DEBUG
+        if CadenceDesignPreview.requested != nil { return true }
+        #endif
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.refreshIdentifier, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { task.setTaskCompleted(success: false); return }
             Self.scheduleRefresh()
@@ -29,20 +32,34 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct CadenceApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var model = AppModel()
-    @Environment(\.scenePhase) private var phase
-
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model)
-                .task(id: phase) {
-                    // Runs for the initial active scene too; no duplicate onAppear registration.
-                    if phase == .active { model.scheduleRefresh("本体の再登録/起動・前面") }
-                    if phase == .background { AppDelegate.scheduleRefresh() }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
-                    model.scheduleRefresh("本体の再登録/タイムゾーン変更", reset: true)
-                }
+            #if DEBUG
+            if let preview = CadenceDesignPreview.requested {
+                CadenceDesignPreview(screen: preview)
+                    .dynamicTypeSize(preview.hasSuffix("-large") ? .accessibility3 : .large)
+                    .preferredColorScheme(.dark)
+            } else { LiveRoot() }
+            #else
+            LiveRoot()
+            #endif
         }
+    }
+}
+
+/// Kept lazy: the preview branch never instantiates AppModel or any of its services.
+private struct LiveRoot: View {
+    @StateObject private var model = AppModel()
+    @Environment(\.scenePhase) private var phase
+    var body: some View {
+        ContentView(model: model)
+            .preferredColorScheme(.dark)
+            .task(id: phase) {
+                if phase == .active { model.scheduleRefresh("本体の再登録/起動・前面") }
+                if phase == .background { AppDelegate.scheduleRefresh() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                model.scheduleRefresh("本体の再登録/タイムゾーン変更", reset: true)
+            }
     }
 }
