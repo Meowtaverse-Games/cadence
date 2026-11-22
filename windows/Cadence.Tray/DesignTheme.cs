@@ -24,8 +24,10 @@ internal sealed class DesignTheme : IDisposable
 
     private static Font InstalledFont(string preferred, string fallback, float size)
     {
-        using var fonts = new System.Drawing.Text.InstalledFontCollection();
-        return new Font(fonts.Families.Any(f => f.Name == preferred) ? preferred : fallback, size);
+        var font = new Font(preferred, size);
+        if (string.Equals(font.Name, preferred, StringComparison.OrdinalIgnoreCase)) return font;
+        font.Dispose();
+        return new Font(fallback, size);
     }
 
     public void Apply(Control control)

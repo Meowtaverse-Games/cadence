@@ -23,8 +23,8 @@ internal sealed class SettingsForm : Form
     private readonly Label sync = Label("");
     private readonly Label problem = Label("");
     private readonly Label error = Label("");
-    private readonly TextBox email = new() { PlaceholderText = "メールアドレス", AccessibleName = "メールアドレス" };
-    private readonly TextBox password = new() { PlaceholderText = "パスワード", UseSystemPasswordChar = true, AccessibleName = "パスワード" };
+    private readonly TextBox email = new() { Dock = DockStyle.Top, PlaceholderText = "メールアドレス", AccessibleName = "メールアドレス" };
+    private readonly TextBox password = new() { Dock = DockStyle.Top, PlaceholderText = "パスワード", UseSystemPasswordChar = true, AccessibleName = "パスワード" };
     private readonly Button signIn = Button("サインイン");
     private readonly Button signOut = Button("サインアウト");
     private readonly TableLayoutPanel list = Column();
@@ -32,7 +32,7 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox startup = new() { Text = "Windows のログオン時に起動する", AutoSize = true };
     private readonly TimelineControl timeline = new() { Dock = DockStyle.Top };
     private readonly TableLayoutPanel root = Column();
-    private readonly TableLayoutPanel statusCard = new() { AutoSize = true, ColumnCount = 2, Padding = new Padding(16) };
+    private readonly TableLayoutPanel statusCard = new() { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 2, Padding = new Padding(16), Margin = new Padding(0, 0, 0, 12) };
     private readonly TableLayoutPanel details = Column();
     private TrayState displayState;
     private bool highContrast = DesignTheme.HighContrast;
@@ -66,7 +66,6 @@ internal sealed class SettingsForm : Form
         root.MinimumSize = new Size(640, 0);
         scroll.Controls.Add(root);
         scroll.Layout += (_, _) => root.Width = Math.Max(root.MinimumSize.Width, scroll.ClientSize.Width - scroll.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
-        root.Controls.Add(Label("C A D E N C E", theme.Tag));
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
         var stateText = Column();
@@ -214,6 +213,11 @@ internal sealed class SettingsForm : Form
             child.BackColor = DesignTheme.Surface;
             foreach (Control nested in child.Controls) nested.BackColor = DesignTheme.Surface;
         }
+        foreach (Control row in list.Controls)
+        {
+            row.BackColor = DesignTheme.Surface;
+            foreach (Control child in row.Controls) child.BackColor = DesignTheme.Surface;
+        }
         tag.ForeColor = DesignTheme.StateColor(displayState);
         sync.ForeColor = connection.ForeColor = DesignTheme.Muted;
         error.ForeColor = problem.ForeColor = DesignTheme.Alert;
@@ -287,13 +291,17 @@ internal sealed class SettingsForm : Form
         list.RowCount = 0;
         foreach (var name in executables)
         {
-            var row = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 2, 2, 2) };
+            var row = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(10, 4, 4, 4), Margin = new Padding(0) };
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var label = Label(name, theme.Mono);
             label.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            label.Margin = new Padding(0);
             var remove = Button("✕");
             remove.AccessibleName = name + " を外す";
+            remove.Padding = new Padding(0);
+            remove.Margin = new Padding(0);
+            remove.MinimumSize = new Size(32, 32);
             remove.Click += (_, _) =>
             {
                 var proposed = executables.ToList();
@@ -304,6 +312,7 @@ internal sealed class SettingsForm : Form
             row.Controls.Add(remove, 1, 0);
             row.Paint += (_, e) => { using var pen = new Pen(DesignTheme.Line); e.Graphics.DrawLine(pen, 0, row.Height - 1, row.Width, row.Height - 1); };
             theme.Apply(row);
+            row.BackColor = label.BackColor = remove.BackColor = DesignTheme.Surface;
             list.Controls.Add(row);
         }
         if (executables.Count == 0) list.Controls.Add(Label("exe は登録されていません"));
@@ -328,6 +337,7 @@ internal sealed class SettingsForm : Form
             picker.Controls.Add(choices);
             picker.Controls.Add(select);
             theme.Apply(picker);
+            picker.SystemColorsChanged += (_, _) => theme.Apply(picker);
             picker.HandleCreated += (_, _) => DesignTheme.ApplyNative(picker);
             choices.HandleCreated += (_, _) => DesignTheme.ApplyNative(choices);
             picker.ShowDialog(this);
