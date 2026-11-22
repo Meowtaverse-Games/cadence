@@ -80,7 +80,7 @@ internal sealed class SettingsForm : Form
             // Draw on the card itself: native Label printing can omit a prefix in
             // DrawToBitmap. This also reserves the entire next row for Japanese.
             var scale = DeviceDpi / 96f;
-            using var font = new Font(theme.Mono.FontFamily, theme.Mono.Size * scale);
+            using var font = new Font(theme.Mono.FontFamily, theme.Mono.SizeInPoints * DeviceDpi / 72f, GraphicsUnit.Pixel);
             using var brush = new SolidBrush(DesignTheme.Muted);
             using var format = new StringFormat { Alignment = StringAlignment.Far };
             e.Graphics.DrawString(syncSummary, font, brush,
