@@ -20,7 +20,7 @@ internal sealed class SettingsForm : Form
     private readonly Label connection = Label("");
     private readonly Button reload = Button("接続設定を読み直す");
     private readonly Label account = Label("");
-    private readonly Label sync = Label("");
+    private string syncSummary = "";
     private readonly Label problem = Label("");
     private readonly Label error = Label("");
     private readonly TextBox email = new() { Dock = DockStyle.Top, PlaceholderText = "メールアドレス", AccessibleName = "メールアドレス" };
@@ -70,20 +70,22 @@ internal sealed class SettingsForm : Form
         statusCard.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
         tag.Font = theme.Tag;
         status.Font = theme.Heading;
-        sync.Font = theme.Mono;
-        sync.AutoSize = false;
-        sync.MinimumSize = new Size(170, 20);
-        sync.UseCompatibleTextRendering = true;
-        sync.Dock = DockStyle.Fill;
-        sync.TextAlign = ContentAlignment.TopRight;
         statusCard.Controls.Add(tag, 0, 0);
-        statusCard.Controls.Add(sync, 1, 0);
         statusCard.Controls.Add(status, 0, 1);
         statusCard.SetColumnSpan(status, 2);
         statusCard.Paint += (_, e) =>
         {
             using var pen = new Pen(displayState == TrayState.Focus ? DesignTheme.Focus : DesignTheme.Line);
             e.Graphics.DrawRectangle(pen, 0, 0, statusCard.Width - 1, statusCard.Height - 1);
+            // Draw on the card itself: native Label printing can omit a prefix in
+            // DrawToBitmap. This also reserves the entire next row for Japanese.
+            var scale = DeviceDpi / 96f;
+            using var font = new Font(theme.Mono.FontFamily, theme.Mono.Size * scale);
+            using var brush = new SolidBrush(DesignTheme.Muted);
+            using var format = new StringFormat { Alignment = StringAlignment.Far };
+            e.Graphics.DrawString(syncSummary, font, brush,
+                new RectangleF(statusCard.Width / 2f, 20 * scale,
+                    statusCard.Width / 2f - 16 * scale, 24 * scale), format);
         };
         root.Controls.Add(statusCard);
         root.Controls.Add(problem);
@@ -159,7 +161,9 @@ internal sealed class SettingsForm : Form
         displayState = snapshot.State;
         tag.Text = string.Join(" ", snapshot.State.ToString().ToUpperInvariant().ToCharArray());
         status.Text = snapshot.Status;
-        sync.Text = snapshot.Sync;
+        syncSummary = snapshot.Sync;
+        statusCard.AccessibleName = "今の状態";
+        statusCard.AccessibleDescription = snapshot.Status + "。" + snapshot.Sync;
         connection.Text = snapshot.Connection;
         problem.Text = snapshot.Problem;
         problem.Visible = problem.Text.Length > 0;
@@ -225,7 +229,7 @@ internal sealed class SettingsForm : Form
             foreach (Control child in row.Controls) child.BackColor = DesignTheme.Surface;
         }
         tag.ForeColor = DesignTheme.StateColor(displayState);
-        sync.ForeColor = connection.ForeColor = DesignTheme.Muted;
+        connection.ForeColor = DesignTheme.Muted;
         error.ForeColor = problem.ForeColor = DesignTheme.Alert;
     }
 
