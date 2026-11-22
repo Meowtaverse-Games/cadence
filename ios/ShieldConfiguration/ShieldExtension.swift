@@ -15,12 +15,13 @@ final class ShieldExtension: ShieldConfigurationDataSource {
         formatter.timeZone = .current
         formatter.dateFormat = "HH:mm"
         return ShieldConfiguration(
-            backgroundBlurStyle: .systemMaterial,
-            backgroundColor: .systemBackground,
-            title: .init(text: "集中の時間です", color: .label),
-            subtitle: end.map { .init(text: "\(formatter.string(from: $0)) まで", color: .secondaryLabel) },
-            primaryButtonLabel: .init(text: "閉じる", color: .white),
-            primaryButtonBackgroundColor: .systemIndigo)
+            backgroundBlurStyle: .systemMaterialDark,
+            backgroundColor: CadencePalette.ground,
+            icon: CadenceMark.image(),
+            title: .init(text: "集中の時間です", color: CadencePalette.text),
+            subtitle: end.map { .init(text: "\(formatter.string(from: $0)) まで", color: CadencePalette.muted) },
+            primaryButtonLabel: .init(text: "閉じる", color: CadencePalette.ground),
+            primaryButtonBackgroundColor: CadencePalette.focus)
     }
 
     override func configuration(shielding application: Application) -> ShieldConfiguration { configuration() }
