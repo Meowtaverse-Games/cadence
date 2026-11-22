@@ -1,4 +1,4 @@
-# Apple 開発用署名と実機確認（PR 4a）
+# Apple 開発用署名と実機確認
 
 この手順は Apple Developer Program の有効な登録と、iPhone を接続できる Mac を前提とする。
 Codemagic がビルドするため、Mac でソースをビルドする必要はない。
@@ -62,7 +62,7 @@ ssh-keygen -t rsa -b 2048 -m PEM -f '<PRIVATE_DIRECTORY>/cadence_development_key
 ## 6. Codemagic の登録
 
 Codemagic に GitHub のリポジトリを追加して `codemagic.yaml` を選ぶ。
-Environment variables にグループ `cadence_apple` を作り、次の4つをすべて Secret にする。
+Environment variables にグループ `cadence_apple` を作り、次の5つをすべて Secret にする。
 
 | 変数 | 値 |
 |---|---|
@@ -70,9 +70,36 @@ Environment variables にグループ `cadence_apple` を作り、次の4つを�
 | `APP_STORE_CONNECT_KEY_IDENTIFIER` | `<KEY_ID>` |
 | `APP_STORE_CONNECT_PRIVATE_KEY` | `.p8` のヘッダー・フッターと改行を含む全文 |
 | `CERTIFICATE_PRIVATE_KEY` | 手順5の秘密鍵のヘッダー・フッターと改行を含む全文 |
+| `GOOGLE_SERVICE_INFO_PLIST_BASE64` | Firebase から取得した plist 全体を base64 にした1行 |
 
-確認: 4変数が Secret で同じグループに入り、ワークフローから参照されること。
+確認: 5変数が Secret で同じグループに入り、ワークフローから参照されること。
 キーをログに出す `echo` や `set -x` は追加しない。
+
+Firebase の plist は [Firebase の準備](firebase-setup.md#5-ios-アプリを登録する) で取得する。
+手元の安全な環境で次を実行し、出力を Secret に貼り付ける。base64 は暗号化ではない。
+値を Issue / PR やビルドログに貼らない。末尾を含め改行を入れず、1行だけを登録する。
+
+Mac:
+
+```sh
+base64 -i '<PRIVATE_DIRECTORY>/GoogleService-Info.plist' | tr -d '\r\n'
+```
+
+Linux:
+
+```sh
+base64 -w 0 '<PRIVATE_DIRECTORY>/GoogleService-Info.plist'
+```
+
+Windows PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('<PRIVATE_DIRECTORY>\GoogleService-Info.plist'))
+```
+
+ワークフローはプロジェクト生成より前に `ios/GoogleService-Info.plist` を書き出し、`plutil -lint` で確認する。
+変数が無いと登録を促すメッセージで失敗する。値や復号した内容はログへ出さない。
+archive/export 後は IPA の `Payload/Cadence.app/GoogleService-Info.plist` の存在を検査する。
 
 ## 7. 手動ビルド
 
@@ -173,7 +200,7 @@ monitor の判定行はコールバック内で同期的に OS ログへ出し�
 ファイルへの追記前にプロセスが終了する場合があるため、共有記録に無い判定行は Mac のコンソールも確認する。
 照合行も OS ログへの出力後にファイルへ追記する。照合失敗時の画面の監視件数は直前の値を保持し、最新値とは限らない。
 起動・前面、権限状態変更、BG タスクは差分照合だけを行い、全解除しない。
-全解除は時間割保存・選択保存・タイムゾーン変更（登録ゾーン未記録時を含む）・手動の「再登録」に限る。
+全解除は内容が変わった時間割保存・同期受信・選択保存・タイムゾーン変更（登録ゾーン未記録時を含む）・手動の「再登録」に限る。
 extension の照合は非同期のため、途中でプロセスが終了すると照合行が残らない場合がある。
 次のコールバック・見張り・本体・BG タスクで不足分が補充されることを確認する。
 
@@ -195,3 +222,21 @@ extension の照合は非同期のため、途中でプロセスが終了する�
 端末のタイムゾーン変更を本体が動いていない間に OS がどう扱うか、開始前通知、過去開始区間、
 再起動後の連鎖、監視上限はシミュレーター CI では判定できない。
 再起動後の初回ロック解除前は App Group のファイル保護により読み出せない場合がある。
+
+### 同期の実機確認（PR 4b）
+
+Codemagic の実行と端末へのインストールは人が行う。CI は Firebase の本物の認証・同期や Screen Time の動作を確認しない。
+以下も合成の時間割で実施し、実際の uid・メールアドレス・時間割・設定ファイル・記録は公開しない。
+
+| ID | 操作 | 期待結果 | 結果 |
+|---|---|---|---|
+| S1 設定・導入 | Secret を登録して ios-development をビルドし IPA を入れる | plist 構文・IPA 同梱検査が成功し、同期欄にサインインが出る | 未確認 |
+| S2 初回選択 | 端末に時間割を保存してサインイン。サーバーには合成の空 patterns を用意 | 両方の要約と選択肢が出る。選択前は編集不可でブロックは継続。再起動後も選択が出る | 未確認 |
+| S3 アップロード | 「この iPhone の時間割をサーバーに上げる」を選ぶ | 確定後ひも付け済み。コンソールの文書が一致し、Windows のトレイが60秒以内に同じ時間割を使う | 未確認 |
+| S4 編集 | iPhone で時間割を変更・保存 | 端末・コンソール・Windows に反映し、登録記録の reset は1回だけ。同じ内容の保存・受信で追加の reset が無い | 未確認 |
+| S5 受信・無効値 | コンソールで有効な合成時間割へ変更し、次に enabled を数値にする | 有効な変更は端末へ採用して再登録。無効値は直前の時間割を維持して検証コードを表示 | 未確認 |
+| S6 再起動・前面 | 同じ内容のまま閉じて開き直す・前面に戻す | サインインが保持され、起動・前面・同じ snapshot で reset が無い | 未確認 |
+| S7 オフライン | ひも付け後に機内モードで時間割を変更し、その後解除 | 端末のブロックは新しい時間割で動き、接続後にサーバーと Windows に反映。最終同期時刻が更新される | 未確認 |
+| S8 認証・サインアウト | 間違ったパスワードを試し、正しくサインイン後ブロック中にサインアウト | 日本語の失敗案内。確認文を経ても shield・監視・選択・時間割が変わらない。未サインインでも編集でき、再サインインで初回突き合わせを行う | 未確認 |
+| S9 初回の各分岐 | サーバーなし、同じ内容、端末なし、異なる内容でサーバー採用、無効文書で上書きも確認 | 仕様の同期表どおり。同じ内容で再登録せず、初回アップロードは確定後にだけひも付ける | 未確認 |
+| S10 エラー・キャッシュ | 初回オフライン、保存拒否、listener 権限エラーを管理者のテスト環境で確認 | キャッシュだけで初回判断しない。失敗案内はドメイン・コードだけで、端末のブロックを継続。記録に uid・メールアドレス・時間割の内容が無い | 未確認 |

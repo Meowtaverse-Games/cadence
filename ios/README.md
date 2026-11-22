@@ -1,7 +1,7 @@
 # iOS
 
 SwiftUI のアプリ本体と、Foundation だけに依存する Swift Package `CadenceCore`。
-iOS 16 / macOS 13 以上、Swift 5 モード。Firebase は PR 4b で追加する。
+iOS 16 / macOS 13 以上、Swift 5 モード。Firebase Authentication / Firestore による時間割同期を本体だけで行う。
 
 ## ターゲットと端末内データ
 
@@ -10,17 +10,24 @@ iOS 16 / macOS 13 以上、Swift 5 モード。Firebase は PR 4b で追加す�
 - `ShieldConfiguration`: 「集中の時間です」と、連続するブロックの解除時刻を端末時間で表示。
 
 3ターゲットは Family Controls と App Group `group.com.meowtaverse-games.cadence` を使う。
-本体に2 extension を埋め込み、Firebase や追加の外部パッケージは使わない。
+本体に2 extension を埋め込む。Firebase SDK 13.2.0（exactVersion）を SPM で導入し、
+FirebaseAuth と FirebaseFirestore だけを本体にリンクする。extension と Shared は Firebase を import しない。
+13.2.0 の Package.swift は iOS 15 以上・Xcode 26.2 以上を要求し、ここでは iOS 16 / Xcode 26.6 を使う。
 Info.plist と entitlements は `project.yml` から生成する。署名と Team はビルド時だけ設定する。
 
-`Shared/GroupStore.swift` は検証済み時間割（updatedAt なし）と FamilyActivitySelection を JSON 保存する。
+`Shared/GroupStore.swift` は検証済み時間割（updatedAt なし）、FamilyActivitySelection、最終同期時刻を JSON 保存する。
+編集用の `LocalTimetable` は CadenceCore の `SyncTimetable` の別名で、保存済み JSON の形は変えない。
+同期の判断表とコードポイントを保つ比較・変換は CadenceCore、Firebase API と認証は `Cadence/FirebaseSync.swift` に置く。
+初回はサーバーから確認し、違う時間割があれば利用者に選ばせる。選択中と初回アップロード確定待ちは編集を止める。
+サインアウトは時間割・対象・監視・shield に触れない。詳細は [仕様の同期節](../docs/mvp-spec.md#同期) を参照。
 ファイルの一時書き込み・置換とプロセス間ロックを使い、読み出せないファイルは欠損として記録する。
 時間割がない/対象選択がない場合はブロックしない。本体は未認可なら監視を停止するが、
 extension は権限状態の読み違いだけでは停止せず、時間割で判定する。無効な編集は保存せず直前の時間割を保つ。
 
 `ActivityPlanner` は現在から14日を展開し、進行中を含む7区間までを計画する。
 毎日00:00〜23:59の見張りと合わせて最大8件。登録失敗でも本体の shield 更新は続ける。
-本体は起動・前面・保存・選択変更・タイムゾーン変更で全監視を入れ替え、BGAppRefreshTaskでも更新する。
+本体は内容が変わった時間割の保存・同期受信、選択変更・タイムゾーン変更で全監視を入れ替える。
+起動・前面・BGAppRefreshTask は差分照合のみで、内容が同じ snapshot でも全解除しない。
 本体は権限状態の publisher を監視し、起動・前面・権限変更の短時間の重複をまとめる。
 extension は既存の必要な監視を維持して差分を補充する。保存した登録時のタイムゾーン identifier が
 変わった場合は見張りを含め全再登録し、その前に identifier を保存して再入時の繰り返しを防ぐ。
@@ -47,7 +54,10 @@ xcodebuild build -project ios/Cadence.xcodeproj -scheme Cadence \
   -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO
 ```
 
-`GoogleService-Info.plist` は任意のローカルファイルとして参照する。存在しなくても生成・ビルドできる。
+`GoogleService-Info.plist` は任意のローカルファイルとして参照する。存在しなくても生成・ビルドでき、
+Firebase を初期化せず端末だけで動く。Codemagic の実機用ビルドでは Secret からの生成を必須にする。
+CI は plist 無し・合成 plist 有りを両方ビルドし、バンドルへの有無を確認する。
+両 extension の実行ファイル（debug dylib を含む）の nm / otool と Frameworks の有無で Firebase 非混入も確認する。
 CI は `macos-26` / Xcode 26.6、公式リリースを SHA-256 で照合した XcodeGen 2.44.1 を使用する。
 
 ## CadenceCore のテストと API
@@ -84,20 +94,28 @@ if let timetable = result.timetable {
 
 ## リモート依存を追加・更新するとき
 
-現在はローカルパッケージだけなので `ios/Package.resolved` は不要。
-リモート依存は `project.yml` の `exactVersion` で固定し、次の手順で推移依存も固定する。
+リモート依存は `project.yml` の `exactVersion` とコミット済みの `ios/Package.resolved` で固定する。
+生成スクリプトは lock をプロジェクトへコピーする。通常の CI / Codemagic は
+`-onlyUsePackageVersionsFromResolvedFile` を使う。
 
-1. `ios/scripts/generate-project.sh` でプロジェクトを生成する。
-2. Mac で明示的に依存解決する（この更新操作だけは版の取得を許す）。
+Mac が無いときは CI の artifact から作り直す。
+
+1. `project.yml` の exactVersion を更新し、`ios/Package.resolved` を削除して作業ブランチへコミット・push する。
+2. iOS app ジョブは lock が無いときだけ `xcodebuild -resolvePackageDependencies` を実行し、
+   `ios-package-resolved-absent` と `ios-package-resolved-synthetic` をアップロードする。
+   その後「ios/Package.resolved がありません」と意図的に失敗する。
+3. 片方の artifact を取得する（`<RUN_ID>` は自分の作業ブランチの run）。
 
    ```sh
-   xcodebuild -resolvePackageDependencies -project ios/Cadence.xcodeproj -scheme Cadence
-   cp ios/Cadence.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved ios/Package.resolved
+   gh run download <RUN_ID> --name ios-package-resolved-absent --dir /tmp/astra-resolved-update
+   cp /tmp/astra-resolved-update/Package.resolved ios/Package.resolved
+   gh api repos/firebase/firebase-ios-sdk/git/ref/tags/<VERSION>
    ```
 
-3. 更新の場合も `exactVersion` の変更後に同じ手順を行い、差分を確認して
-   `ios/project.yml` と `ios/Package.resolved` を一緒にコミットする。
-4. 生成スクリプトをもう一度実行し、通常ビルドの固定オプションで成功することを確認する。
+4. lock の `firebase-ios-sdk` の version が exactVersion と同じで、revision が公式タグの commit と
+   一致することを確認する（annotated tag ならタグの先の commit まで確認する）。推移依存の差分も確認する。
+5. lock を追加コミット・push し、最終 head の core と app の両構成が成功することを確認する。
+   lock 不足時の意図的な失敗だけで完了としない。
 
-生成スクリプトは `ios/Package.resolved` があれば生成プロジェクト内の同じファイルへコピーする。
-通常ビルドと CI は `-onlyUsePackageVersionsFromResolvedFile` を使い、固定ファイルにない版の取得を防ぐ。
+Mac では生成後に `xcodebuild -resolvePackageDependencies -project ios/Cadence.xcodeproj -scheme Cadence` で解決し、
+`ios/Cadence.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` を `ios/Package.resolved` へ戻してもよい。

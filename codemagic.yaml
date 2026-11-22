@@ -11,6 +11,22 @@ workflows:
       vars:
         XCODEGEN_SHA256: a2e905fb68446e9bb4008cdfe2e13e3f176d0cbcca828b71770f8e53fca91b73
     scripts:
+      - name: Restore Firebase configuration from secret
+        script: |
+          set +x
+          set -euo pipefail
+          if [[ -z "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]]; then
+            echo 'cadence_apple グループに GOOGLE_SERVICE_INFO_PLIST_BASE64 を Secret として登録してください。'
+            exit 1
+          fi
+          python3 - <<'PYPLIST'
+          import base64
+          import os
+          from pathlib import Path
+          Path("ios/GoogleService-Info.plist").write_bytes(
+              base64.b64decode(os.environ["GOOGLE_SERVICE_INFO_PLIST_BASE64"], validate=True))
+          PYPLIST
+          plutil -lint ios/GoogleService-Info.plist
       - name: Install verified XcodeGen 2.44.1
         script: |
           set -euo pipefail
@@ -36,6 +52,19 @@ workflows:
           set -euo pipefail
           mkdir -p build/logs
           xcode-project build-ipa --project ios/Cadence.xcodeproj --scheme Cadence --config Release --archive-flags='-onlyUsePackageVersionsFromResolvedFile' --export-options-plist "$CM_BUILD_DIR/export_options.plist" 2>&1 | tee build/logs/ios-development.log
+      - name: Verify Firebase configuration is embedded in the IPA
+        script: |
+          set -euo pipefail
+          python3 - <<'PYIPA'
+          from pathlib import Path
+          from zipfile import ZipFile
+          archives = list(Path("build/ios/ipa").glob("*.ipa"))
+          assert archives, "IPA がありません"
+          for archive in archives:
+              with ZipFile(archive) as ipa:
+                  assert "Payload/Cadence.app/GoogleService-Info.plist" in ipa.namelist(), "IPA に Firebase の設定がありません"
+          print("IPA 内の Firebase 設定ファイルを確認しました。")
+          PYIPA
     artifacts:
       - build/ios/ipa/*.ipa
       - build/logs/*.log

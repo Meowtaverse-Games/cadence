@@ -41,9 +41,9 @@ final class AppModel: ObservableObject {
         sync.start(read: { [weak self] in self?.files.timetable()?.0 }, adopt: { [weak self] document in
             guard let self else { throw CocoaError(.fileWriteUnknown) }
             let previous = self.files.timetable()?.0
+            let changed = try previous.map { try !TimetableContent.same($0, document) } ?? true
             try self.files.save(document)
             self.document = document
-            let changed = try previous.map { try !TimetableContent.same($0, document) } ?? true
             if changed { self.refresh("本体の再登録/同期受信") }
         })
         authorizationSubscription = AuthorizationCenter.shared.$authorizationStatus
