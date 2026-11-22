@@ -3,7 +3,7 @@ import Combine
 import CadenceCore
 
 struct AppRefreshResult {
-    let activityCount: Int
+    let activityCount: Int?
     let errors: [String]
 }
 
@@ -13,10 +13,10 @@ final class AppRefreshService: ObservableObject {
     static let shared = AppRefreshService()
     @Published private(set) var isRefreshing = false
     @Published private(set) var result: AppRefreshResult?
-    private let worker = CoalescingRefreshQueue<AppRefreshResult> { @Sendable event, reset in
-        let count = ScreenTimeCoordinator(category: "app").refresh(event: event, reset: reset)
+    private let worker = CoalescingRefreshQueue<AppRefreshResult> { @Sendable event, reset, batch in
+        let count = ScreenTimeCoordinator(category: "app").refresh(event: event, reset: reset, batch: batch)
         return AppRefreshResult(
-            activityCount: count ?? 0,
+            activityCount: count,
             errors: GroupStore(category: "app").registrationErrors())
     }
 

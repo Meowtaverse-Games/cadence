@@ -8,13 +8,15 @@ struct RefreshContext: Sendable {
     let event: String
     let activityName: String?
     let didStart: Bool
-    let received = Date()
-    private let started = DispatchTime.now().uptimeNanoseconds
+    let received: Date
+    private let started: UInt64
 
-    init(event: String, activityName: String?, didStart: Bool) {
+    init(event: String, activityName: String?, didStart: Bool, batch: RefreshBatch = RefreshBatch()) {
         self.event = event
         self.activityName = activityName
         self.didStart = didStart
+        received = batch.received
+        started = batch.startedUptimeNanoseconds
     }
 
     var elapsedMilliseconds: UInt64 { (DispatchTime.now().uptimeNanoseconds - started) / 1_000_000 }
@@ -37,10 +39,10 @@ struct ScreenTimeCoordinator {
     }
 
     @discardableResult
-    func refresh(event: String, reset: Bool = false) -> Int? {
-        let context = RefreshContext(event: event, activityName: nil, didStart: false)
-        GroupStore(category: category).record(applyShield(context))
-        return reconcile(context, reset: reset)
+    func refresh(event: String, reset: Bool = false, batch: RefreshBatch = RefreshBatch()) -> Int? {
+        let context = RefreshContext(event: event, activityName: nil, didStart: false, batch: batch)
+        GroupStore(category: category).record(applyShield(context) + " coalescedCount=\(batch.count)")
+        return reconcile(context, reset: reset, coalescedCount: batch.count)
     }
 
     // No DeviceActivityCenter instance or API is touched on the callback path.
@@ -61,7 +63,7 @@ struct ScreenTimeCoordinator {
         let timetable = files.timetable()?.1
         let settings = ManagedSettingsStore(named: .init("cadence"))
         let start = activity.flatMap { ActivityPlanner.start(for: $0.rawValue) }
-        let evaluation = ActivityPlanner.evaluationTime(now: received, intervalDidStart: didStart, activityStart: start)
+        let evaluation = ActivityPlanner.evaluationTime(now: category == "app" ? Date() : received, intervalDidStart: didStart, activityStart: start)
         let authorization = AuthorizationCenter.shared.authorizationStatus
         let authorized = authorization.isApprovedForCadence
         let permitted = MonitoringPolicy.permitsMonitoring(isApp: category == "app", authorized: authorized)

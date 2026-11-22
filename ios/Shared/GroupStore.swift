@@ -148,10 +148,18 @@ struct GroupStore {
 
     func record(_ message: String) {
         if let diagnostics { diagnostics(message); return }
+        recordLine(formattedRecord(message))
+    }
+
+    func formattedRecord(_ message: String) -> String {
         let bounded = String(message.prefix(4096))
-        let line = "\(Self.timestamp(Date())) [\(category)] timezone=\(TimeZone.current.identifier) \(bounded)"
+        return "\(Self.timestamp(Date())) [\(category)] timezone=\(TimeZone.current.identifier) \(bounded)"
+    }
+
+    // A callback can emit this exact line synchronously, then persist it off the callback stack.
+    func recordLine(_ line: String, systemLogAlreadyEmitted: Bool = false) {
         let logger = Logger(subsystem: "com.meowtaverse-games.cadence", category: category)
-        logger.notice("\(line, privacy: .public)")
+        if !systemLogAlreadyEmitted { logger.notice("\(line, privacy: .public)") }
         do {
             try locked("events") {
                 var entries: [String]

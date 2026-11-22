@@ -29,7 +29,8 @@ final class AppModel: ObservableObject {
         AppRefreshService.shared.$result
             .compactMap { $0 }
             .sink { [weak self] result in
-                self?.activityCount = result.activityCount
+                // A failed reconciliation does not mean the OS has zero activities.
+                if let count = result.activityCount { self?.activityCount = count }
                 self?.registrationErrors = result.errors
                 self?.updateStatus()
             }
