@@ -1,7 +1,6 @@
 import SwiftUI
 import Combine
 import FamilyControls
-import DeviceActivity
 import CadenceCore
 
 @MainActor
@@ -15,41 +14,45 @@ final class AppModel: ObservableObject {
     @Published var activityCount = 0
     @Published var error: String?
     @Published var registrationErrors: [String] = []
+    @Published var isRefreshing = false
     let files = GroupStore(category: "app")
     private var authorizationSubscription: AnyCancellable?
-    private var pendingRefresh: Task<Void, Never>?
-    private var pendingEvents = Set<String>()
+    private var refreshSubscriptions = Set<AnyCancellable>()
 
     init() {
         document = files.timetable()?.0 ?? LocalTimetable()
         selection = files.selection() ?? FamilyActivitySelection()
+        updateStatus()
+        AppRefreshService.shared.$isRefreshing
+            .sink { [weak self] in self?.isRefreshing = $0 }
+            .store(in: &refreshSubscriptions)
+        AppRefreshService.shared.$result
+            .compactMap { $0 }
+            .sink { [weak self] result in
+                self?.activityCount = result.activityCount
+                self?.registrationErrors = result.errors
+                self?.updateStatus()
+            }
+            .store(in: &refreshSubscriptions)
         authorizationSubscription = AuthorizationCenter.shared.$authorizationStatus
             .removeDuplicates()
             .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                // Published emits before its property changes; defer reading the center to the refresh.
+            .sink { [weak self] status in
+                // Publish the emitted value immediately, independently of a slow registration.
+                self?.authorization = status
                 self?.scheduleRefresh("本体の再登録/権限状態変更")
             }
     }
 
-    /// Coalesce launch, foreground and authorization notifications without dropping the latest state.
     func scheduleRefresh(_ event: String) {
-        pendingEvents.insert(event)
-        pendingRefresh?.cancel()
-        pendingRefresh = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 200_000_000) } catch { return }
-            guard let self else { return }
-            self.refresh(self.pendingEvents.sorted().joined(separator: ","))
-        }
+        // Refresh authorization/status before enqueueing; never wait for DeviceActivityCenter.
+        updateStatus()
+        AppRefreshService.shared.request(event)
     }
 
     func refresh(_ event: String) {
-        pendingRefresh?.cancel()
-        pendingRefresh = nil
-        pendingEvents.removeAll()
-        ScreenTimeCoordinator(category: "app").refresh(event: event, reset: true)
-        updateStatus()
+        scheduleRefresh(event)
     }
 
     func updateStatus() {
@@ -71,7 +74,6 @@ final class AppModel: ObservableObject {
         let now = Date()
         blocked = inactiveReason == nil && ActivityPlanner.isBlocked(timetable, at: now)
         next = inactiveReason == nil ? timetable.flatMap { try? ActivityPlanner.nextTransition($0, now: now) } : nil
-        activityCount = DeviceActivityCenter().activities.count
         registrationErrors = files.registrationErrors()
     }
 
