@@ -111,45 +111,60 @@ struct PatternEditorScreen: View {
     }
 
     private func segmentRow(_ index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Rectangle().fill(rows[index].kind == "block" ? Theme.focus : Theme.free).frame(width: 5)
-                VStack(alignment: .leading, spacing: 2) {
-                    StateTag(text: rows[index].kind == "block" ? "FOCUS" : "FREE", color: rows[index].kind == "block" ? Theme.focus : Theme.free)
-                    Picker("種類", selection: $rows[index].kind) {
-                        Text("ブロック").tag("block"); Text("自由").tag("free")
-                    }.labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメント\(index + 1)の種類")
-                }
-                Spacer(minLength: 0)
-                TextField("分", text: $rows[index].minutes).keyboardType(.numberPad)
-                    .font(.system(.title3, design: .monospaced)).frame(minWidth: 48, maxWidth: 80).cadenceField()
-                    .accessibilityLabel("セグメント\(index + 1)の分数")
-                Text("分").font(.caption).foregroundStyle(Theme.muted)
-            }.fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button { rows.swapAt(index, index - 1) } label: { Image(systemName: "arrow.up") }
-                    .accessibilityLabel("セグメント\(index + 1)を上へ").disabled(index == 0)
-                Button { rows.swapAt(index, index + 1) } label: { Image(systemName: "arrow.down") }
-                    .accessibilityLabel("セグメント\(index + 1)を下へ").disabled(index == rows.count - 1)
-                Spacer()
-                Button(role: .destructive) { rows.remove(at: index) } label: { Image(systemName: "trash") }
-                    .accessibilityLabel("セグメント\(index + 1)を削除")
-            }.buttonStyle(CadenceButtonStyle())
-        }.cadenceCard()
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 3).fill(rows[index].kind == "block" ? Theme.focus : Theme.free).frame(width: 5)
+            VStack(alignment: .leading, spacing: 0) {
+                StateTag(text: rows[index].kind == "block" ? "FOCUS" : "FREE", color: rows[index].kind == "block" ? Theme.focus : Theme.free)
+                Picker("種類", selection: $rows[index].kind) {
+                    Text("ブロック").tag("block"); Text("自由").tag("free")
+                }.labelsHidden().frame(minHeight: 44).accessibilityLabel("セグメント\(index + 1)の種類")
+            }
+            Spacer(minLength: 0)
+            TextField("分", text: $rows[index].minutes).keyboardType(.numberPad)
+                .font(.system(.title3, design: .monospaced)).frame(minWidth: 44, maxWidth: 60).cadenceField()
+                .accessibilityLabel("セグメント\(index + 1)の分数")
+            Text("分").font(.caption).foregroundStyle(Theme.muted)
+            Menu {
+                Button { rows.swapAt(index, index - 1) } label: { Label("上へ移動", systemImage: "arrow.up") }.disabled(index == 0)
+                Button { rows.swapAt(index, index + 1) } label: { Label("下へ移動", systemImage: "arrow.down") }.disabled(index == rows.count - 1)
+                Button(role: .destructive) { rows.remove(at: index) } label: { Label("削除", systemImage: "trash") }
+            } label: {
+                Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }.accessibilityLabel("セグメント\(index + 1)の並べ替えと削除")
+        }.fixedSize(horizontal: false, vertical: true).cadenceCard()
     }
 
     private var preview: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("プレビュー · FOCUS / FREE").font(Theme.mono).foregroundStyle(Theme.muted)
             if let candidate = candidatePattern() {
-                var standalone: LocalTimetable { var value = LocalTimetable(); var p = candidate; p.enabled = true; p.weekdays = [1,2,3,4,5,6,7]; value.patterns = [p]; return value }
-                let result = TimetableParser.parse(object: standalone.fields)
-                if let table = result.timetable,
-                   let window = try? TimetableDisplay.window(table, at: previewMidnight) {
+                let validation = TimetableParser.parse(object: replacingPattern(candidate).fields)
+                if let code = validation.errorCode {
+                    Text(ValidationFailure(code: code).errorDescription ?? "入力を確認してください。")
+                        .font(.footnote).foregroundStyle(Theme.alert)
+                } else if let window = previewWindow(candidate) {
                     WindowBar(window: window, name: candidate.name)
-                } else { Text(ValidationFailure(code: result.errorCode ?? "invalid_document").errorDescription ?? "入力を確認してください。").font(.footnote).foregroundStyle(Theme.alert) }
+                } else {
+                    Text("無効なパターンです。ブロックを含むサイクルを設定するとプレビューできます。")
+                        .font(.footnote).foregroundStyle(Theme.muted)
+                }
             } else { Text(ValidationFailure(code: "segment_minutes").errorDescription ?? "分数を確認してください。").font(.footnote).foregroundStyle(Theme.alert) }
         }.cadenceCard()
+    }
+    private func previewWindow(_ candidate: LocalPattern) -> DisplayWindow? {
+        var standalone = LocalTimetable()
+        var value = candidate
+        value.enabled = true
+        value.weekdays = [1, 2, 3, 4, 5, 6, 7]
+        standalone.patterns = [value]
+        guard let table = TimetableParser.parse(object: standalone.fields).timetable else { return nil }
+        return try? TimetableDisplay.window(table, at: previewMidnight)
+    }
+    private func replacingPattern(_ updated: LocalPattern) -> LocalTimetable {
+        var candidate = document
+        if let index = candidate.patterns.firstIndex(where: { sameID($0) }) { candidate.patterns[index] = updated }
+        else { candidate.patterns.append(updated) }
+        return candidate
     }
     private var previewMidnight: Date {
         // Fixed synthetic Monday; only the pattern's time of day matters here.
@@ -169,10 +184,7 @@ struct PatternEditorScreen: View {
     private func savePattern() {
         guard let updated = candidatePattern() else { error = ValidationFailure(code: "segment_minutes").errorDescription; return }
         pattern = updated
-        var candidate = document
-        if let index = candidate.patterns.firstIndex(where: { sameID($0) }) { candidate.patterns[index] = updated }
-        else { candidate.patterns.append(updated) }
-        finish(candidate)
+        finish(replacingPattern(updated))
     }
     private func finish(_ candidate: LocalTimetable) {
         if let failure = save(candidate) { error = failure } else { dismiss() }

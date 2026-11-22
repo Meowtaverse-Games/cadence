@@ -24,18 +24,11 @@ def arc(start, length, color):
               for r, sequence in [(34.5, angles), (25.5, angles[::-1])] for a in sequence]
     draw.polygon(points, fill=color)
 
+background = image.copy()
 draw.ellipse(box((15.5, 15.5, 84.5, 84.5)), fill="#1A272D")
 # Ring inner radius is 25.5. Preserve the grid inside the ring.
-draw.ellipse(box((25.5, 25.5, 74.5, 74.5)), fill=GROUND)
-# Restore the same grid inside the hole without affecting the ring.
 hole = Image.new("L", image.size)
-ImageDraw.Draw(hole).ellipse(box((25.5, 25.5, 74.5, 74.5)), fill=255)
-background = Image.new("RGB", image.size, GROUND)
-bg = ImageDraw.Draw(background)
-for i in range(17):
-    p = round(i * 6.25 * SCALE)
-    bg.line((p, 0, p, SIZE), fill=grid, width=round(.3 * SCALE))
-    bg.line((0, p, SIZE, p), fill=grid, width=round(.3 * SCALE))
+ImageDraw.Draw(hole).ellipse(box((24.5, 24.5, 75.5, 75.5)), fill=255)
 image.paste(background, mask=hole)
 draw = ImageDraw.Draw(image)
 for cycle in range(3):
