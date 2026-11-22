@@ -142,3 +142,62 @@ jobs:
               fi
             done
           done
+
+  design-preview:
+    runs-on: macos-26
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install XcodeGen 2.44.1 from verified official release
+        env:
+          XCODEGEN_SHA256: a2e905fb68446e9bb4008cdfe2e13e3f176d0cbcca828b71770f8e53fca91b73
+        run: |
+          curl --fail --location --retry 3 https://github.com/yonaskolb/XcodeGen/releases/download/2.44.1/xcodegen.zip -o "$RUNNER_TEMP/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum --algorithm 256 --check
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          echo "$RUNNER_TEMP/xcodegen/xcodegen/bin" >> "$GITHUB_PATH"
+      - name: Generate project without Firebase configuration
+        run: |
+          test ! -e ios/GoogleService-Info.plist
+          ios/scripts/generate-project.sh
+          test -f ios/Package.resolved
+      - name: Build preview app with locked packages
+        run: >-
+          xcodebuild build
+          -project ios/Cadence.xcodeproj -scheme Cadence -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/CadenceDerivedData"
+          -onlyUsePackageVersionsFromResolvedFile CODE_SIGNING_ALLOWED=NO
+      - name: Launch synthetic screens and capture screenshots
+        run: |
+          python3 - <<'PYSIM'
+          import json, os, subprocess
+          from pathlib import Path
+          def run(*args):
+              return subprocess.check_output(args, text=True).strip()
+          devices = json.loads(run("xcrun", "simctl", "list", "devices", "available", "--json"))
+          device = next(d for group in devices["devices"].values() for d in group if d["name"].startswith("iPhone"))
+          udid = device["udid"]
+          if device["state"] != "Booted":
+              run("xcrun", "simctl", "boot", udid)
+          run("xcrun", "simctl", "bootstatus", udid, "-b")
+          run("xcrun", "simctl", "status_bar", udid, "override", "--time", "20:31", "--batteryState", "charged", "--batteryLevel", "100")
+          app = Path(os.environ["RUNNER_TEMP"]) / "CadenceDerivedData/Build/Products/Debug-iphonesimulator/Cadence.app"
+          run("xcrun", "simctl", "install", udid, str(app))
+          output = Path(os.environ["RUNNER_TEMP"]) / "ios-design-preview"
+          output.mkdir()
+          import time
+          for screen in ["home-focus", "home-free", "home-idle", "editor", "first-link", "sync", "shield"]:
+              subprocess.run(["xcrun", "simctl", "terminate", udid, "com.meowtaverse-games.cadence"], check=False)
+              run("xcrun", "simctl", "launch", udid, "com.meowtaverse-games.cadence", "-CadenceDesignPreview", screen)
+              time.sleep(3)
+              run("xcrun", "simctl", "io", udid, "screenshot", str(output / (screen + ".png")))
+          PYSIM
+      - name: Upload design preview
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-design-preview
+          path: ${{ runner.temp }}/ios-design-preview/*.png
+          if-no-files-found: error
+          retention-days: 14
