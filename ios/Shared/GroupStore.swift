@@ -114,6 +114,11 @@ struct GroupStore {
         }
     }
 
+    func lastSyncTime() -> Date? { read("last-sync.json", as: Date.self) }
+    func saveLastSyncTime(_ date: Date) throws {
+        try locked("last-sync") { try write(date, file: "last-sync.json") }
+    }
+
     func registrationTimeZone() -> String? { read("registration-time-zone.json", as: String.self) }
     // Persist before stopMonitoring, so callbacks caused by the reset don't repeat it.
     func saveRegistrationTimeZone(_ identifier: String) throws {

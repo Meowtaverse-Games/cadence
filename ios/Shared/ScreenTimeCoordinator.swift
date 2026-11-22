@@ -150,6 +150,7 @@ struct ScreenTimeCoordinator {
                 files.record("timeZoneReset previous=\(registeredZone ?? "none") current=\(currentZone) action=stopAllAndRegister")
             }
             let client = ScreenTimeMonitoringClient(schedules: schedules, files: files)
+            if reset || zoneChanged { files.record("reset action=stopAllAndRegister") }
             MonitoringReconciler.reconcile(client, desired: desired, reset: reset || zoneChanged)
             persist("registration-errors.json") { try files.saveErrors(client.errors) }
             // The second and last snapshot is solely for diagnostics and the app's status display.

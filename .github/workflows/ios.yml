@@ -33,8 +33,12 @@ jobs:
         run: swift test
 
   app:
+    strategy:
+      fail-fast: false
+      matrix:
+        firebase-config: [absent, synthetic]
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Show pinned Xcode version and export methods
@@ -56,11 +60,48 @@ jobs:
           echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum --algorithm 256 --check
           unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
           echo "$RUNNER_TEMP/xcodegen/xcodegen/bin" >> "$GITHUB_PATH"
-      - name: Generate project without Firebase configuration
+      - name: Prepare optional synthetic Firebase configuration
+        env:
+          FIREBASE_CONFIG: ${{ matrix.firebase-config }}
+        run: |
+          test ! -e ios/GoogleService-Info.plist
+          if [[ "$FIREBASE_CONFIG" == synthetic ]]; then
+            python3 - <<'PYPLIST'
+          import plistlib
+          from pathlib import Path
+          values = {
+              "PROJECT_ID": "demo-cadence", "BUNDLE_ID": "com.meowtaverse-games.cadence",
+              "GOOGLE_APP_ID": "1:000000000000:ios:0000000000000000000000",
+              "GCM_SENDER_ID": "000000000000", "API_KEY": "synthetic-not-a-real-api-key",
+              "PLIST_VERSION": "1", "IS_ANALYTICS_ENABLED": False,
+          }
+          Path("ios/GoogleService-Info.plist").write_bytes(plistlib.dumps(values))
+          PYPLIST
+            plutil -lint ios/GoogleService-Info.plist
+          fi
+      - name: Generate project
         run: |
           xcodegen --version
-          test ! -e ios/GoogleService-Info.plist
           ios/scripts/generate-project.sh
+      - name: Resolve packages only when the committed lock is missing
+        if: hashFiles('ios/Package.resolved') == ''
+        run: >-
+          xcodebuild -resolvePackageDependencies
+          -project ios/Cadence.xcodeproj -scheme Cadence
+      - name: Upload resolved packages for committing
+        if: hashFiles('ios/Package.resolved') == ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-package-resolved-${{ matrix.firebase-config }}
+          path: ios/Cadence.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require committed package lock
+        run: |
+          if [[ ! -f ios/Package.resolved ]]; then
+            echo '::error::ios/Package.resolved がありません。artifact を取得して ios/Package.resolved としてコミットしてください。'
+            exit 1
+          fi
       - name: Build unsigned simulator app and extensions with locked package resolution
         run: >-
           xcodebuild build
@@ -71,8 +112,33 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/CadenceDerivedData"
           -onlyUsePackageVersionsFromResolvedFile
           CODE_SIGNING_ALLOWED=NO
-      - name: Verify both extensions are embedded
+      - name: Verify Firebase configuration packaging
+        env:
+          FIREBASE_CONFIG: ${{ matrix.firebase-config }}
+        run: |
+          plist="$RUNNER_TEMP/CadenceDerivedData/Build/Products/Debug-iphonesimulator/Cadence.app/GoogleService-Info.plist"
+          if [[ "$FIREBASE_CONFIG" == synthetic ]]; then
+            test -f "$plist"
+            plutil -lint "$plist"
+          else
+            test ! -e "$plist"
+          fi
+      - name: Verify both extensions are embedded and contain no Firebase
         run: |
           app="$RUNNER_TEMP/CadenceDerivedData/Build/Products/Debug-iphonesimulator/Cadence.app"
           test -d "$app/PlugIns/DeviceActivityMonitor.appex"
           test -d "$app/PlugIns/ShieldConfiguration.appex"
+          for extension in DeviceActivityMonitor ShieldConfiguration; do
+            bundle="$app/PlugIns/$extension.appex"
+            test ! -d "$bundle/Frameworks"
+            # Include the debug dylib, when Xcode emits one, as well as the executable.
+            for binary in "$bundle/$extension" "$bundle"/*.dylib; do
+              [[ -f "$binary" ]] || continue
+              nm -a "$binary" > "$RUNNER_TEMP/extension-symbols.txt"
+              otool -L "$binary" > "$RUNNER_TEMP/extension-libraries.txt"
+              if grep -Ei 'firebase|firestore|FIRApp|FIRAuth|FIRFirestore' "$RUNNER_TEMP/extension-symbols.txt" "$RUNNER_TEMP/extension-libraries.txt"; then
+                echo '::error::Firebase was linked into an extension'
+                exit 1
+              fi
+            done
+          done

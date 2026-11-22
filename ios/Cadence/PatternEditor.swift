@@ -61,13 +61,17 @@ struct PatternEditor: View {
                         .disabled(rows.count >= 20)
                 }
                 if let error { Text(error).foregroundStyle(.red) }
-                if model.document.patterns.contains(where: { $0.id == pattern.id }) {
+                if model.document.patterns.contains(where: { $0.id.unicodeScalars.elementsEqual(pattern.id.unicodeScalars) }) {
                     Button("パターンを削除", role: .destructive) {
                         var candidate = model.document
-                        candidate.patterns.removeAll { $0.id == pattern.id }
+                        candidate.patterns.removeAll { $0.id.unicodeScalars.elementsEqual(pattern.id.unicodeScalars) }
                         if model.save(candidate) { dismiss() } else { error = model.error }
-                    }
+                    }.disabled(model.sync.editingBlocked)
                 }
+            }
+            .disabled(model.sync.editingBlocked)
+            .safeAreaInset(edge: .bottom) {
+                if model.sync.editingBlocked { Text(model.sync.editingReason).font(.footnote).padding() }
             }
             .navigationTitle("時間割の編集")
             .toolbar {
@@ -85,11 +89,11 @@ struct PatternEditor: View {
                         }
                         pattern.segments = segments
                         var candidate = model.document
-                        if let index = candidate.patterns.firstIndex(where: { $0.id == pattern.id }) {
+                        if let index = candidate.patterns.firstIndex(where: { $0.id.unicodeScalars.elementsEqual(pattern.id.unicodeScalars) }) {
                             candidate.patterns[index] = pattern
                         } else { candidate.patterns.append(pattern) }
                         if model.save(candidate) { dismiss() } else { error = model.error }
-                    }
+                    }.disabled(model.sync.editingBlocked)
                 }
             }
         }

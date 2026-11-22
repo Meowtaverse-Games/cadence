@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published var error: String?
     @Published var registrationErrors: [String] = []
     @Published var isRefreshing = false
+    let sync = FirebaseSync()
     let files = GroupStore(category: "app")
     private var authorizationSubscription: AnyCancellable?
     private var refreshSubscriptions = Set<AnyCancellable>()
@@ -35,6 +36,16 @@ final class AppModel: ObservableObject {
                 self?.updateStatus()
             }
             .store(in: &refreshSubscriptions)
+        sync.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &refreshSubscriptions)
+        sync.start(read: { [weak self] in self?.files.timetable()?.0 }, adopt: { [weak self] document in
+            guard let self else { throw CocoaError(.fileWriteUnknown) }
+            let previous = self.files.timetable()?.0
+            let changed = try previous.map { try !TimetableContent.same($0, document) } ?? true
+            try self.files.save(document)
+            self.document = document
+            if changed { self.refresh("本体の再登録/同期受信") }
+        })
         authorizationSubscription = AuthorizationCenter.shared.$authorizationStatus
             .removeDuplicates()
             .dropFirst()
@@ -91,11 +102,15 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func save(_ candidate: LocalTimetable) -> Bool {
+        guard !sync.editingBlocked else { error = sync.editingReason; return false }
         do {
+            let previous = files.timetable()?.0
+            let changed = try previous.map { try !TimetableContent.same($0, candidate) } ?? true
             try files.save(candidate)
             document = candidate
             error = nil
-            refresh("本体の再登録/時間割保存")
+            if changed { refresh("本体の再登録/時間割保存") }
+            sync.localSaved(candidate)
             return true
         } catch {
             self.error = (error as? ValidationFailure)?.errorDescription ?? "保存できませんでした（\(GroupStore.reason(error))）。"
