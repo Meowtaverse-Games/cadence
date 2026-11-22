@@ -72,7 +72,8 @@ internal sealed class SettingsForm : Form
         status.Font = theme.Heading;
         sync.Font = theme.Mono;
         sync.AutoSize = false;
-        sync.MinimumSize = new Size(170, 36);
+        sync.MinimumSize = new Size(170, 20);
+        sync.UseCompatibleTextRendering = true;
         sync.Dock = DockStyle.Fill;
         sync.TextAlign = ContentAlignment.TopRight;
         statusCard.Controls.Add(tag, 0, 0);
