@@ -15,8 +15,11 @@ struct ContentView: View {
             HomeScreen(state: HomeState(model: model),
                        sync: { syncSheet = true }, authorize: { Task { await model.authorize() } },
                        select: { draftSelection = model.selection; picker = true },
-                       edit: { editing = $0 }, delete: { index in
+                       edit: { editing = $0 }, delete: { id in
                            var candidate = model.document
+                           guard let index = candidate.patterns.firstIndex(where: {
+                               $0.id.unicodeScalars.elementsEqual(id.unicodeScalars)
+                           }) else { return }
                            candidate.patterns.remove(at: index)
                            model.save(candidate)
                        }, refresh: { model.refresh("本体の再登録/手動") }) {
@@ -91,8 +94,11 @@ struct HomeState {
         editingBlocked = model.sync.editingBlocked; editingReason = model.sync.editingReason
         syncTime = model.sync.lastSync
         syncStatus = model.sync.status
-        syncColor = model.sync.error != nil || model.sync.hasWriteFailure ? Theme.alert :
-            model.sync.configured && model.sync.signedIn && model.sync.lastSync != nil && model.sync.status == "同期済みです。" ? Theme.free : Theme.muted
+        switch model.sync.indicator {
+        case .synced: syncColor = Theme.free
+        case .attention: syncColor = Theme.alert
+        case .pending, .inactive: syncColor = Theme.muted
+        }
     }
 
     func transition(at now: Date) -> (blocked: Bool, next: Date?) {
@@ -114,7 +120,7 @@ struct HomeScreen<Conflict: View>: View {
     let authorize: () -> Void
     let select: () -> Void
     let edit: (LocalPattern) -> Void
-    let delete: (Int) -> Void
+    let delete: (String) -> Void
     let refresh: () -> Void
     @ViewBuilder let conflict: () -> Conflict
 
@@ -136,11 +142,11 @@ struct HomeScreen<Conflict: View>: View {
                         .disabled(state.document.patterns.count >= 20 || state.editingBlocked)
                 }
                 if state.editingBlocked { Text(state.editingReason).font(Theme.footnote).foregroundStyle(Theme.muted) }
-                ForEach(Array(state.document.patterns.enumerated()), id: \.offset) { index, pattern in
+                ForEach(Array(state.document.patterns.enumerated()), id: \.offset) { _, pattern in
                     Button { edit(pattern) } label: { PatternSummary(pattern: pattern).cadenceCard() }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            Button("パターンを削除", role: .destructive) { delete(index) }
+                            Button("パターンを削除", role: .destructive) { delete(pattern.id) }
                                 .disabled(state.editingBlocked)
                         }.disabled(state.editingBlocked)
                 }
