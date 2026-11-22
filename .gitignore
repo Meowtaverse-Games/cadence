@@ -46,3 +46,6 @@ ios/DeviceActivityMonitor/Info.plist
 ios/DeviceActivityMonitor/DeviceActivityMonitor.entitlements
 ios/ShieldConfiguration/Info.plist
 ios/ShieldConfiguration/ShieldConfiguration.entitlements
+
+# Synthetic Windows design previews
+windows/design-preview/
