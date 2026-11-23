@@ -59,7 +59,10 @@ windows/Releases/
 
 # Android / Gradle
 .gradle/
-android/**/build/
+# Module output dirs only (a broader **/build/ would also hide source packages named "build").
+# Note: the .NET rule "bin/" above also applies under android/.
+android/build/
+android/*/build/
 android/local.properties
 android/.kotlin/
 *.apk
