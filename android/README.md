@@ -3,6 +3,8 @@
 `:core` は Android や JSON ライブラリに依存しない Kotlin/JVM の時間割エンジン。
 `TimetableParser.parse(TimetableValue)` が検証し、`ValidationResult` の `timetable` または
 `errorCode` を返す。`TimetableValue.NumberValue` には JSON 数値の原表記を渡す。
+Firestore の Long・Double は `TimetableValue.number(...)` で変換する。
+非有限の Double は文字列になり、数値フィールドでは型の誤りとして無効、未知フィールドでは無視される。
 整数への変換や丸めを入力時に行わず、検証時に C# の `GetDouble` と同じ判定を行う。
 未知フィールドは無視する。タイムゾーンは固定の UTC+09:00。
 
@@ -28,6 +30,7 @@ app は現段階では unit test を持たないため、`testDebugUnitTest` の
 CI では JDK 21 と Android SDK がある Ubuntu ランナーで検証し、JUnit XML を
 `android-test-results`、APK を `cadence-android-debug-apk` に保存する。
 
-Linux ARM64 の実行環境では Gradle の native library を読み込めない場合があるため、
-その環境ではローカルの実行を省略し、Android workflow で core を含めて検証する。
+`:core:test` は JDK 21 で実行できる。`:app` のビルド・lint・テストには Android SDK も必要。
+エージェントの sandbox の中では Gradle の native library を読み込めない場合があるため、
+その場合はローカルの実行を省略し、Android workflow で core を含めて検証する。
 共有 fixtures は103件。テストは件数を固定せず、追加された JSON も自動で取り込む。

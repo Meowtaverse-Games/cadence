@@ -9,8 +9,9 @@ sealed interface TimetableValue {
 
     /**
      * Original numeric lexeme, without narrowing to Long or Double on ingestion.
-     * Retains decimal/exponent notation and arbitrarily large values. Adapters for
-     * Firestore numbers can supply Long.toString() or Double.toString().
+     * Retains decimal/exponent notation and arbitrarily large values. This constructor
+     * requires a JSON numeric lexeme. Firestore adapters should use [TimetableValue.number]
+     * for Long/Double values so non-finite doubles are represented without throwing.
      */
     data class NumberValue(val raw: String) : TimetableValue {
         init {
@@ -22,4 +23,17 @@ sealed interface TimetableValue {
         }
     }
     data object NullValue : TimetableValue
+
+    companion object {
+        /** Preserves the exact integer value without narrowing to Double. */
+        fun number(value: Long): TimetableValue = NumberValue(value.toString())
+
+        /**
+         * Finite doubles remain numeric. Non-finite doubles become strings, matching
+         * Firestore conversion in C#: numeric fields reject them as type errors while
+         * unknown fields can ignore them. Neither case throws for any Double input.
+         */
+        fun number(value: Double): TimetableValue =
+            if (value.isFinite()) NumberValue(value.toString()) else StringValue(value.toString())
+    }
 }
