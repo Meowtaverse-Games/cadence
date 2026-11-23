@@ -1,3 +1,5 @@
+using Velopack;
+
 namespace Cadence.Tray;
 
 internal static class Program
@@ -5,6 +7,12 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        VelopackApp.Build()
+            .SetAutoApplyOnStartup(false)
+            .OnAfterInstallFastCallback(_ => StartupRegistration.Install())
+            .OnAfterUpdateFastCallback(_ => StartupRegistration.Update())
+            .OnBeforeUninstallFastCallback(_ => StartupRegistration.Uninstall())
+            .Run();
         if (args.Length == 2 && args[0] == "--design-preview")
         {
             ApplicationConfiguration.Initialize();

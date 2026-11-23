@@ -42,12 +42,29 @@ dotnet test windows/Cadence.sln --configuration Release --no-build --no-restore
 
 ## Windows トレイアプリ
 
-Windows x64 用の確認用ビルドは GitHub Actions の **Windows** workflow にある
-`cadence-windows-win-x64` 成果物からダウンロードする（保存期間14日）。ZIP を展開し、
-書き込み可能で移動しないフォルダーに置いて `Cadence.Tray.exe` を起動する。
-.NET ランタイムの別途インストールは不要。署名していないため SmartScreen の警告が
-表示されることがある。取得元と対象コミットを確認してから実行する。
-管理者権限は不要で、二重起動はしない。
+Windows 11 x64 では [GitHub Releases](https://github.com/Meowtaverse-Games/cadence/releases) の
+安定版 `windows-vX.Y.Z` から `Cadence-win-Setup.exe`（以下 Setup.exe）をダウンロードして実行する。
+.NET ランタイムの別途インストールは不要。コード署名はしていないため、初回のインストール時に
+SmartScreen の警告が出ることがある。取得元と対象の版を確認してから実行する。
+通常のユーザーとしてインストールし、二重起動はしない。
+
+インストール後は起動から約1分後、その後6時間ごとに安定版を確認し、裏でダウンロードする。
+ブロック中ではなく、次のブロックまで5分以上あり、設定画面が閉じているときに自動で再起動して入れ替える。
+待機中は1分ごとに条件を見直す。時間割が無い場合も、設定画面を閉じてから入れ替える。
+「接続と詳細」に現在の版、更新状態、最後の確認時刻と「今すぐ確認」を表示する。
+このボタンでも入れ替え条件は変わらない。確認・ダウンロードの失敗時は次の6時間周期で再試行し、
+保存済みの時間割でブロックと同期を続ける。設定・時間割・サインイン状態の保存先は変わらない。
+
+手動で配置した旧版からの移行は、次の順で行う。
+
+1. 旧版のトレイメニューから「終了」を選ぶ。
+2. Releases の Setup.exe をインストールする。自動起動は新しい場所に書き直される。
+3. 旧版の exe を置いたフォルダーを削除する。`%APPDATA%\Cadence` は削除しない。
+
+GitHub Actions の **Windows** workflow の成果物は公開前の確認用（保存期間14日）。
+`cadence-windows-installer-preview` は CI 専用版 `0.0.2-ci.<run_number>` の Setup.exe と更新パッケージ、
+`cadence-windows-win-x64` は手動配置用 exe。CI の Setup.exe は検証用環境で使う。
+手動で置いた exe や `dotnet run` は自動更新せず、その旨を設定画面に表示する。
 
 接続設定は `%APPDATA%\Cadence\cadence-firebase.json` から読む。
 `%APPDATA%` は通常 `C:\Users\<ユーザー>\AppData\Roaming` を指す。
@@ -93,7 +110,9 @@ JSON の不正は取得できる場合に行とバイト位置（どちらも1�
   更新時の `INVALID_REFRESH_TOKEN` / `TOKEN_EXPIRED` / `USER_DISABLED` / `USER_NOT_FOUND` だけが
   再サインインの対象。それ以外の認証設定・通信の失敗でもセッションとキャッシュは保持する。
 - 「Windows のログオン時に起動する」は現在のユーザーの Run レジストリに登録する。
-  exe を移動した場合は新しい場所でオフ → オンにする。無効にするにはチェックを外す。
+  Setup.exe 版はインストール先直下の `Cadence.Tray.exe` を使い、`current` 内の exe は登録しない。
+  インストール時に有効化、更新時は有効な登録だけ修正し、アンインストール時に削除する。
+  手動配置版の exe を移動した場合は新しい場所でオフ → オンにする。無効にするにはチェックを外す。
 - 終了はトレイの「終了」。終了中・PC のスリープ中にはプロセスを監視できない。
 
 ローカルデータはすべて `%APPDATA%\Cadence\` に保存する。
@@ -123,8 +142,29 @@ dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSin
 `Cadence.Tray/PublishLocks/*.json` を分けて固定する。依存を更新する場合のみ
 `--force-evaluate`（publish は `-p:RestoreForceEvaluate=true`）で再計算し、差分を確認する。
 SDK 由来の publish ツールも lock に含むため、SDK 更新時は `global.json` と publish 用 lock を一緒に更新する。
-CI は build / test / publish を行い、テスト結果 `windows-test-results` と確認用 exe を
+Velopack の NuGet パッケージと `.config/dotnet-tools.json` の vpk は同じ版に固定する。
+CI は build / test / publish / vpk pack を行い、テスト結果 `windows-test-results` と確認用 exe を
 14日間保存する。Windows 実機での通知、DPAPI、プロセス終了、自動起動は別途確認する。
+
+### Windows のリリース
+
+このリポジトリの GitHub Releases は Windows 版の配布専用に使う（他の Release が直近に10件以上並ぶと、アプリが更新を見つけられなくなるため）。
+
+公開は本人の承認を得たあと、Claude が承認済みコミットに `windows-v<版>` のタグを作り push する。
+main へのマージだけでは公開されず、手動実行もない。タグを作る前に PR の Windows CI で
+locked restore、build、test、publish、pack、デザインプレビューの成功を確認する。
+
+版は iOS と独立した `X.Y.Z`（先頭の v、先行ゼロ、prerelease、build metadata は不可）。
+初回は `0.2.0` を想定し、修正は patch（例 `0.2.1`）、機能追加は minor（例 `0.3.0`）、
+互換性を壊す変更は major を上げる。公開済みより大きい版にする。公開済みタグの付け替えはしない。
+Windows Release workflow がタグから版を取り出し、アプリの Version とパッケージの版をそろえる。
+前の安定版をダウンロードして差分を作り、Setup.exe、full / delta パッケージ、更新フィードを
+そのタグの GitHub Release に公開する。初回は full パッケージのみ。Firebase 設定・セッション・
+時間割・ログ・テスト結果は publish フォルダの検査で除外し、含まれていたら pack 前に失敗させる。
+
+Windows 11 実機では、承認済みの `0.2.0` → `0.2.1` など2版を使い、自由時間の更新、
+ブロック中・開始5分未満・設定画面表示中の待機、ネットワーク切断時の継続、
+Run キーがインストール先直下を指すこと、再起動後の設定とサインインの維持を確かめる。
 
 ### デザインのプレビュー
 
@@ -132,7 +172,8 @@ Windows CI の `windows-design-preview` に、合成データだけで描いた�
 最小サイズで右端へスクロールした画面、ブロック中の ALERT、システム色による高コントラスト配色の画面と、
 16 / 20 / 24 / 32px のトレイアイコンを保存する。画像生成と artifact の保存も CI の必須検証に含める。
 Windows 上では build 後に次で生成できる。通常起動と独立した経路なので、実際の設定・
-AppData・レジストリ・プロセス一覧・Firebase を読み書きしない。
+Cadence の保存先・レジストリ・プロセス一覧・Firebase を読み書きしない。
+共通の Velopack 起動処理による診断ログは作られる場合がある。
 
 ```sh
 dotnet run --project Cadence.Tray -c Release --no-build --no-restore -- --design-preview design-preview

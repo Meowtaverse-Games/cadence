@@ -7,12 +7,14 @@ on:
       - 'design/**'
       - 'spec/**'
       - '.github/workflows/windows.yml'
+      - '.github/workflows/windows-release.yml'
   pull_request:
     paths:
       - 'windows/**'
       - 'design/**'
       - 'spec/**'
       - '.github/workflows/windows.yml'
+      - '.github/workflows/windows-release.yml'
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: windows
@@ -43,8 +45,25 @@ jobs:
           path: windows/**/TestResults/*.trx
           if-no-files-found: ignore
           retention-days: 14
+      - name: Restore pinned packaging tool
+        run: |
+          $tool = (Get-Content .config/dotnet-tools.json | ConvertFrom-Json).tools.vpk.version
+          $package = ([xml](Get-Content Cadence.Tray/Cadence.Tray.csproj)).SelectSingleNode('//PackageReference[@Include="Velopack"]').Version
+          if ($tool -ne $package) { throw 'Velopack package and tool versions must match.' }
+          dotnet tool restore
       - name: Publish preview with locked dependencies
-        run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true
+        run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true "-p:Version=0.0.2-ci.$env:GITHUB_RUN_NUMBER"
+      - name: Check publish contents
+        run: ./scripts/Assert-PublishContents.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish
+      - name: Pack installer and update packages (no upload)
+        run: dotnet vpk pack --runtime win-x64 --packId Cadence --packVersion "0.0.2-ci.$env:GITHUB_RUN_NUMBER" --packDir Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish --mainExe Cadence.Tray.exe --channel win --outputDir Releases --noPortable
+      - name: Upload installer preview
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cadence-windows-installer-preview
+          path: windows/Releases/*
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload preview
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

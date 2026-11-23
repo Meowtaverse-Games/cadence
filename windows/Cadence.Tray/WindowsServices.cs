@@ -4,6 +4,7 @@ using System.Text.Json;
 using Cadence.Core;
 using Cadence.Tray.Logic;
 using Microsoft.Win32;
+using Velopack.Locators;
 
 namespace Cadence.Tray;
 
@@ -41,8 +42,28 @@ internal static class StartupRegistration
     public static void Set(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(Key);
-        if (enabled) key.SetValue("Cadence", "\"" + Path.GetFullPath(Environment.ProcessPath!) + "\"");
+        if (enabled)
+        {
+            var locator = VelopackLocator.Current;
+            var executable = locator.CurrentlyInstalledVersion is not null && !locator.IsPortable
+                ? Path.Combine(locator.RootAppDir!, "Cadence.Tray.exe")
+                : Path.GetFullPath(Environment.ProcessPath!);
+            key.SetValue("Cadence", "\"" + executable + "\"");
+        }
         else key.DeleteValue("Cadence", throwOnMissingValue: false);
+    }
+
+    public static void Install() => Hook(() => Set(true));
+    public static void Update() => Hook(() => { if (Enabled()) Set(true); });
+    public static void Uninstall() => Hook(() => Set(false));
+    private static void Hook(Action action)
+    {
+        try { action(); }
+        catch (Exception error)
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Cadence", "logs");
+            new DailyLog(directory, TimeProvider.System).Write("update_startup_failed " + UpdateFailure.Describe(error));
+        }
     }
 }
 

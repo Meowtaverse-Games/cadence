@@ -11,5 +11,6 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../Cadence.Tray.Logic/Cadence.Tray.Logic.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../Cadence.Tray.Logic/Cadence.Tray.Logic.csproj" GlobalPropertiesToRemove="Version" /></ItemGroup>
+  <ItemGroup><PackageReference Include="Velopack" Version="1.2.161" /></ItemGroup>
 </Project>

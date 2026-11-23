@@ -17,7 +17,7 @@ iPhone と Windows PC の指定アプリを、利用者が何も操作しなく�
 | 時間割の編集 | iPhone アプリだけで行う。Windows は読み取り専用 |
 | ブロック対象 | 端末ごとに選び、その端末にだけ保存する（同期しない）。iPhone はアプリ選択画面、Windows は exe 名 |
 | タイムゾーン | MVP は `Asia/Tokyo`（UTC+9 固定、夏時間なし）だけを扱う |
-| 配布 | iOS は Codemagic でビルドし TestFlight で配布。Windows は GitHub Actions の成果物 |
+| 配布 | iOS は Codemagic でビルドし TestFlight で配布。Windows は GitHub Releases の Setup.exe |
 | 実機確認 | 配布用 entitlement の承認前は、Codemagic で開発用の署名のビルドを作り、登録した端末に入れて確かめる |
 | bundle ID | `com.meowtaverse-games.cadence` |
 
@@ -286,6 +286,12 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
 
 ## Windows アプリ
 
+- Setup.exe で入れた版は Velopack で GitHub Releases の安定版を起動約1分後・以後6時間ごとに確認する。
+  ダウンロードは裏で行い、ブロック中と次の開始まで5分未満の時間には入れ替えない。
+  ちょうど5分前は可。設定画面を閉じるまで待ち、1分ごとに条件を見直して自由時間に再起動する。
+  確認・ダウンロード・適用の失敗でもブロックと同期を続け、次の確認時刻に再試行する。
+  設定・時間割・サインイン状態は `%APPDATA%\Cadence` に保持する。手動配置版は自動更新しない。
+
 - タスクトレイに常駐する。アイコンのツールチップに、今の状態と次の切り替え時刻を出す。
 - サインイン状態を保つ。Firebase Authentication の REST API でサインインし、refresh token を
   DPAPI（CurrentUser）で暗号化して `%APPDATA%\Cadence\` に保存する。
@@ -361,8 +367,9 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
 - 実機確認用: Codemagic に開発用の署名のワークフローを置き、登録した端末向けのビルドを作って入れる
   （PR 4a。Family Controls の開発用 entitlement は承認なしで使える）。Codemagic で作った `.ipa` は、
   iPhone をつないだ Mac の Xcode（Devices and Simulators）か Apple Configurator で入れる。
-- Windows: GitHub Actions で `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
-  の成果物を作る。
+- Windows: 本人の承認後に `windows-vX.Y.Z` タグを push したときだけ、GitHub Actions で
+  self-contained のアプリを Velopack で梱包し、GitHub Releases に公開する。main のマージでは公開しない。
+  PR / push の CI では公開しない確認用 Setup.exe と更新パッケージを成果物として保存する。
 
 ## MVP の対象外
 
