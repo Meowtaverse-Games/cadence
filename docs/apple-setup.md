@@ -166,7 +166,7 @@ extension は未許可の読み値だけでは停止せず、本体は未許可�
 `timetableReadFailure action=preserveShieldAndMonitoring` は、extension が選択・時間割を読めず、
 shield と監視を維持したことを表す。両方が読めなければ両方の理由を記録する。
 照合の行の `reconcileSkipped=true` は、登録の解除・登録・activity の履歴の書き換えをしなかったことを示す。
-`readFailure file=timetable.json` の `treatedAsMissing` は、extension では `false`、本体では `true`。
+`readFailure file=timetable.json` の `treatedAsMissing` は、DeviceActivityMonitor（`monitor`）では `false`、本体（`app`）と ShieldConfiguration（`shield`）では `true`。
 ファイルが無いときは読み出し失敗とは区別し、従来どおりブロックせず監視を止める。
 時刻はオフセット付き ISO 8601。`selectionCounts` はアプリ/カテゴリ/Web の件数のみ。
 記録には動作時刻があるため、共有は非公開の保管先に限る。結果を公開するなら合成データでの要約だけにする。
