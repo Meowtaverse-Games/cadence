@@ -63,6 +63,8 @@ jobs:
         run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true "-p:Version=$env:RELEASE_VERSION"
       - name: Check publish contents
         run: ./scripts/Assert-PublishContents.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish
+      - name: Smoke test published release
+        run: ./scripts/Test-PackagedStartup.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish -ExpectedVersion "$env:RELEASE_VERSION"
       - name: Download previous release for delta generation
         env:
           GITHUB_TOKEN: ${{ github.token }}

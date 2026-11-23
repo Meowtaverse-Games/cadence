@@ -145,6 +145,7 @@ SDK 由来の publish ツールも lock に含むため、SDK 更新時は `glob
 Velopack の NuGet パッケージと `.config/dotnet-tools.json` の vpk は同じ版に固定する。
 CI は build / test / publish / vpk pack を行い、テスト結果 `windows-test-results` と確認用 exe を
 14日間保存する。Windows 実機での通知、DPAPI、プロセス終了、自動起動は別途確認する。
+CI 専用の `Cadence.Tray.exe --cadence-ci-packaged-smoke-test <期待する版>` は、一時フォルダの合成データで配布版の依存読み込みと版を検証し、画面や利用者データに触れず終了する（成功0、失敗1）。
 
 ### Windows のリリース
 

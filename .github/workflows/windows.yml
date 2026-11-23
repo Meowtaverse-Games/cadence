@@ -55,6 +55,8 @@ jobs:
         run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true "-p:Version=0.0.2-ci.$env:GITHUB_RUN_NUMBER"
       - name: Check publish contents
         run: ./scripts/Assert-PublishContents.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish
+      - name: Smoke test published preview
+        run: ./scripts/Test-PackagedStartup.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish -ExpectedVersion "0.0.2-ci.$env:GITHUB_RUN_NUMBER"
       - name: Pack installer and update packages (no upload)
         run: dotnet vpk pack --runtime win-x64 --packId Cadence --packVersion "0.0.2-ci.$env:GITHUB_RUN_NUMBER" --packDir Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish --mainExe Cadence.Tray.exe --channel win --outputDir Releases --noPortable
       - name: Upload installer preview
