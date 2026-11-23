@@ -55,16 +55,36 @@ struct GroupStore {
         }
     }
 
-    func timetable() -> (LocalTimetable, Timetable)? {
-        guard let document = read("timetable.json", as: LocalTimetable.self),
-              let data = try? JSONEncoder().encode(document) else { return nil }
-        let result = TimetableParser.parse(data: data)
-        guard let timetable = result.timetable else {
-            record("readFailure file=timetable.json reason=\(result.errorCode ?? "unknown"); treatedAsMissing=true")
-            return nil
-        }
-        return (document, timetable)
+    struct TimetableSnapshot {
+        let value: (LocalTimetable, Timetable)?
+        let state: TimetableReadState
     }
+
+    func timetableSnapshot() -> TimetableSnapshot {
+        func unreadable(_ reason: String) -> TimetableSnapshot {
+            let action = TimetableReadPolicy.action(for: .unreadable, isExtension: category == "monitor")
+            let treatedAsMissing = action == .evaluate(hasTimetable: false)
+            record("readFailure file=timetable.json reason=\(reason); treatedAsMissing=\(treatedAsMissing)")
+            return TimetableSnapshot(value: nil, state: .unreadable)
+        }
+        do {
+            let location = try url("timetable.json")
+            let data: Data
+            do { data = try Data(contentsOf: location) }
+            catch let error as NSError where error.domain == NSCocoaErrorDomain
+                && (error.code == NSFileReadNoSuchFileError || error.code == NSFileNoSuchFileError) {
+                return TimetableSnapshot(value: nil, state: .missing)
+            }
+            let document = try JSONDecoder().decode(LocalTimetable.self, from: data)
+            let result = TimetableParser.parse(data: try JSONEncoder().encode(document))
+            guard let timetable = result.timetable else { return unreadable(result.errorCode ?? "unknown") }
+            return TimetableSnapshot(value: (document, timetable), state: .populated)
+        } catch {
+            return unreadable(Self.reason(error))
+        }
+    }
+
+    func timetable() -> (LocalTimetable, Timetable)? { timetableSnapshot().value }
 
     func save(_ timetable: LocalTimetable) throws {
         let data = try JSONEncoder().encode(timetable)

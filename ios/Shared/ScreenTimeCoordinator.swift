@@ -54,13 +54,18 @@ struct ScreenTimeCoordinator {
         var diagnostics: [String] = []
         let files = GroupStore(category: category, diagnostics: { diagnostics.append($0) })
         let snapshot = files.selectionSnapshot()
+        let timetableSnapshot = files.timetableSnapshot()
         let action = SelectionReadPolicy.action(for: snapshot.state, isExtension: category == "monitor")
-        guard case .evaluate(let hasSelection) = action else {
-            files.record("\(context.correlation) scheduledStart=unknown scheduledEnd=unknown evaluation=\(GroupStore.timestamp(received)) decision=変えない blocked=unknown authorized=unknown authorizationStatus=unknown authorizationAction=preserve selectionCounts=unknown selectionReadFailure action=preserveShieldAndMonitoring shieldMs=\(context.elapsedMilliseconds)")
+        let timetableAction = TimetableReadPolicy.action(for: timetableSnapshot.state, isExtension: category == "monitor")
+        guard case .evaluate(let hasSelection) = action, case .evaluate = timetableAction else {
+            let reasons = [action == .preserve ? "selectionReadFailure" : nil,
+                           timetableAction == .preserve ? "timetableReadFailure" : nil]
+                .compactMap { $0 }.map { "\($0) action=preserveShieldAndMonitoring" }.joined(separator: " ")
+            files.record("\(context.correlation) scheduledStart=unknown scheduledEnd=unknown evaluation=\(GroupStore.timestamp(received)) decision=変えない blocked=unknown authorized=unknown authorizationStatus=unknown authorizationAction=preserve selectionCounts=unknown \(reasons) shieldMs=\(context.elapsedMilliseconds)")
             return diagnostics.joined(separator: " | ")
         }
         let selection = snapshot.value
-        let timetable = files.timetable()?.1
+        let timetable = timetableSnapshot.value?.1
         let settings = ManagedSettingsStore(named: .init("cadence"))
         let start = activity.flatMap { ActivityPlanner.start(for: $0.rawValue) }
         let evaluation = ActivityPlanner.evaluationTime(now: category == "app" ? Date() : received, intervalDidStart: didStart, activityStart: start)
@@ -113,12 +118,16 @@ struct ScreenTimeCoordinator {
             catch { files.record("statusWriteFailure file=\(file) reason=\(GroupStore.reason(error))") }
         }
         let snapshot = files.selectionSnapshot()
-        guard case .evaluate(let hasSelection) = SelectionReadPolicy.action(for: snapshot.state, isExtension: category == "monitor") else {
-            files.record("selectionReadFailure action=preserveShieldAndMonitoring reconcileSkipped=true")
+        let timetableSnapshot = files.timetableSnapshot()
+        let action = SelectionReadPolicy.action(for: snapshot.state, isExtension: category == "monitor")
+        let timetableAction = TimetableReadPolicy.action(for: timetableSnapshot.state, isExtension: category == "monitor")
+        guard case .evaluate(let hasSelection) = action, case .evaluate = timetableAction else {
+            if action == .preserve { files.record("selectionReadFailure action=preserveShieldAndMonitoring reconcileSkipped=true") }
+            if timetableAction == .preserve { files.record("timetableReadFailure action=preserveShieldAndMonitoring reconcileSkipped=true") }
             return nil
         }
         do {
-            let timetable = files.timetable()?.1
+            let timetable = timetableSnapshot.value?.1
             let start = context.activityName.flatMap { ActivityPlanner.start(for: $0) }
             let evaluation = ActivityPlanner.evaluationTime(now: Date(), intervalDidStart: context.didStart, activityStart: start)
             let permitted = MonitoringPolicy.permitsMonitoring(isApp: category == "app",
