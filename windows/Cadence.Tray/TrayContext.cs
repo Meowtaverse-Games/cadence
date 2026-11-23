@@ -8,6 +8,8 @@ internal sealed class TrayContext : ApplicationContext
     private readonly LocalFiles files;
     private readonly DailyLog log;
     private readonly SyncService service;
+    private readonly UpdateCoordinator updates;
+    private readonly System.Windows.Forms.Timer updateTimer = new() { Interval = 60000 };
     private FirebaseConfigLoadResult configuration;
     private readonly string directlyUnderAppDataPath;
     private readonly bool openSettingsOnStartup;
@@ -39,6 +41,10 @@ internal sealed class TrayContext : ApplicationContext
         log.Write(configuration.Code);
         service = new(configuration.Config is { } config ? new FirebaseClient(config, clock, new HttpClientHandler()) : null,
             new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write);
+        updates = new(() => new AppUpdater(), AppUpdater.BuildVersion, clock,
+            () => !syncing && UpdatePolicy.CanRestart(service.State.Timetable, clock, settings is not null && !settings.IsDisposed),
+            log.Write, UpdateDisplay);
+        updateTimer.Tick += async (_, _) => await updates.TickAsync(false, shutdown.Token);
         openSettingsOnStartup = StartupSettings.ShouldOpen(configuration.Usable, service.HasSavedSession);
         var menu = new ContextMenuStrip();
         menu.Items.Add(stateMenu);
@@ -66,6 +72,7 @@ internal sealed class TrayContext : ApplicationContext
         UpdateDisplay();
         blockTimer.Start();
         syncTimer.Start();
+        updateTimer.Start();
         Application.Idle += OnFirstIdle;
     }
 
@@ -129,7 +136,7 @@ internal sealed class TrayContext : ApplicationContext
         settings?.RefreshStatus(new(visualState, visualState == TrayState.Alert ? service.AuthProblem ?? service.State.Problem ?? service.StorageProblem ?? summary : summary,
             TrayPresentation.Synchronization(configuration.Usable, service.State.LastSync, syncProblem is not null),
             service.Email, service.Configured, configuration.Message,
-            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow()), configuration.Usable, block.NextChange, service.State.LastSync, clock.GetUtcNow(), Blocked: block.Blocked));
+            !configuration.Usable ? configuration.Message : syncProblem ?? "", TodayTimeline.Build(service.State.TimetableJson, clock.GetUtcNow()), configuration.Usable, block.NextChange, service.State.LastSync, clock.GetUtcNow(), Blocked: block.Blocked, Update: updates.Snapshot));
         if (service.TakeAuthNotification()) Notify("サインインが必要です", "設定画面でサインインしてください。保存済みの時間割でブロックを続けます。", true);
     }
 
@@ -138,7 +145,8 @@ internal sealed class TrayContext : ApplicationContext
         if (settings is null || settings.IsDisposed)
         {
             settings = new SettingsForm(service, executables, SaveExecutables, UpdateDisplay, log,
-                Path.GetDirectoryName(configuration.Path)!, ReloadConfigurationAsync);
+                Path.GetDirectoryName(configuration.Path)!, ReloadConfigurationAsync,
+                () => updates.TickAsync(true, shutdown.Token));
             settings.FormClosed += (_, _) => settings = null;
         }
         UpdateDisplay();
@@ -167,7 +175,9 @@ internal sealed class TrayContext : ApplicationContext
     {
         exiting = true;
         Application.Idle -= OnFirstIdle;
+        updates.Stop();
         shutdown.Cancel();
+        updateTimer.Stop();
         blockTimer.Stop();
         syncTimer.Stop();
         settings?.Close();
@@ -182,6 +192,8 @@ internal sealed class TrayContext : ApplicationContext
             Application.Idle -= OnFirstIdle;
             blockTimer.Dispose();
             syncTimer.Dispose();
+            updates.Stop();
+            updateTimer.Dispose();
             tray.ContextMenuStrip?.Dispose();
             tray.Dispose();
             icons.Dispose();
