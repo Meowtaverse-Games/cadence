@@ -148,6 +148,8 @@ CI は build / test / publish / vpk pack を行い、テスト結果 `windows-te
 
 ### Windows のリリース
 
+このリポジトリの GitHub Releases は Windows 版の配布専用に使う（他の Release が直近に10件以上並ぶと、アプリが更新を見つけられなくなるため）。
+
 公開は本人の承認を得たあと、Claude が承認済みコミットに `windows-v<版>` のタグを作り push する。
 main へのマージだけでは公開されず、手動実行もない。タグを作る前に PR の Windows CI で
 locked restore、build、test、publish、pack、デザインプレビューの成功を確認する。

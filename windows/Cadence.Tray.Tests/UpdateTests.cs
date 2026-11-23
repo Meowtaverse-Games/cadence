@@ -191,6 +191,31 @@ public sealed class UpdateTests
         Assert.Equal("最新", updates.Snapshot.Status);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HidesTrayBeforeApplyingAndRestoresItOnlyOnFailure(bool fails)
+    {
+        var calls = new List<string>();
+        var backend = new FakeUpdater { FailureStage = fails ? "apply" : null, OnApply = () => calls.Add("apply") };
+        var clock = new FakeClock();
+        var safe = false;
+        var updates = new UpdateCoordinator(() => backend, "0.2.0", clock, () => safe,
+            _ => { }, () => { }, visible => calls.Add(visible ? "show" : "hide"));
+        await updates.TickAsync(true, default);
+        Assert.Empty(calls); // Downloading while unsafe must not hide the tray.
+        safe = true;
+        await updates.TickAsync(false, default);
+        Assert.Equal(fails ? new[] { "hide", "apply", "show" } : new[] { "hide", "apply" }, calls);
+        if (fails)
+        {
+            Assert.Contains("確認に失敗", updates.Snapshot.Status);
+            clock.Now = clock.Now.AddMinutes(1);
+            await updates.TickAsync(false, default);
+            Assert.Equal(3, calls.Count); // Restore once, then wait for the retry time.
+        }
+    }
+
     private static UpdateCoordinator Create(FakeUpdater backend, FakeClock clock, Func<bool>? safe = null) =>
         new(() => backend, "0.2.0", clock, safe ?? (() => true), _ => { }, () => { });
 
@@ -212,7 +237,8 @@ public sealed class UpdateTests
             if (DownloadCompletion is not null) await DownloadCompletion.Task;
             HasPendingUpdate = true;
         }
-        public void ApplyAndRestart() { Fail("apply"); Applies++; }
+        public Action? OnApply { get; init; }
+        public void ApplyAndRestart() { OnApply?.Invoke(); Fail("apply"); Applies++; }
         private void Fail(string stage) { if (stage == FailureStage) throw new IOException("https://example.invalid/?token=secret C:\\Users\\synthetic"); }
     }
 }

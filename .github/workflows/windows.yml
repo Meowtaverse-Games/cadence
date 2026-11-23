@@ -56,7 +56,7 @@ jobs:
       - name: Check publish contents
         run: ./scripts/Assert-PublishContents.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish
       - name: Pack installer and update packages (no upload)
-        run: dotnet vpk pack --packId Cadence --packVersion "0.0.2-ci.$env:GITHUB_RUN_NUMBER" --packDir Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish --mainExe Cadence.Tray.exe --channel win --outputDir Releases --noPortable
+        run: dotnet vpk pack --runtime win-x64 --packId Cadence --packVersion "0.0.2-ci.$env:GITHUB_RUN_NUMBER" --packDir Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish --mainExe Cadence.Tray.exe --channel win --outputDir Releases --noPortable
       - name: Upload installer preview
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

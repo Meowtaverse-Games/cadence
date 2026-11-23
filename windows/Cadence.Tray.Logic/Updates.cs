@@ -53,6 +53,7 @@ public sealed class UpdateCoordinator
     private readonly Func<bool> canRestart;
     private readonly Action<string> log;
     private readonly Action changed;
+    private readonly Action<bool> setTrayVisible;
     private IAppUpdater? updater;
     private DateTimeOffset nextCheck;
     private DateTimeOffset retryApplyAfter;
@@ -62,10 +63,11 @@ public sealed class UpdateCoordinator
     public UpdateSnapshot Snapshot { get; private set; }
 
     public UpdateCoordinator(Func<IAppUpdater> create, string version, TimeProvider clock,
-        Func<bool> canRestart, Action<string> log, Action changed)
+        Func<bool> canRestart, Action<string> log, Action changed, Action<bool>? setTrayVisible = null)
     {
         this.create = create; this.clock = clock; this.canRestart = canRestart;
         this.log = log; this.changed = changed;
+        this.setTrayVisible = setTrayVisible ?? (_ => { });
         nextCheck = clock.GetUtcNow().AddMinutes(1);
         Snapshot = new(version, "起動から1分後に確認します", null, true);
         Initialize();
@@ -112,11 +114,18 @@ public sealed class UpdateCoordinator
                 && clock.GetUtcNow() >= retryApplyAfter && canRestart())
             {
                 // No await between the final safety decision and handing off to the updater.
-                try { updater!.ApplyAndRestart(); }
+                try
+                {
+                    // Velopack exits the process without normal ApplicationContext disposal.
+                    setTrayVisible(false);
+                    updater!.ApplyAndRestart();
+                }
                 catch (Exception error)
                 {
                     retryApplyAfter = nextCheck;
                     Fail("apply", error);
+                    try { setTrayVisible(true); }
+                    catch (Exception restoreError) { Fail("restore_tray", restoreError); }
                 }
             }
         }
