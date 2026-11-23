@@ -49,3 +49,6 @@ ios/ShieldConfiguration/ShieldConfiguration.entitlements
 
 # Synthetic Windows design previews
 windows/design-preview/
+
+# Generated Windows update packages
+windows/Releases/

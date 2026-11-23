@@ -361,6 +361,8 @@ internal sealed class SettingsForm : ChromeForm
         if (!scroll.HorizontalScroll.Visible || scroll.HorizontalScroll.Value == 0 || root.Right > scroll.ClientSize.Width)
             throw new InvalidOperationException("The right edge of the settings content is unreachable.");
     }
+    internal void ScrollPreviewToUpdates() => scroll.AutoScrollPosition = new Point(0, root.Height);
+
     internal static SettingsForm Preview(SettingsSnapshot value)
     {
         var form = new SettingsForm(null, ["game.exe", "launcher.exe", "video.exe", "chat.exe"], _ => false, () => { }, null, "", () => Task.CompletedTask, true);

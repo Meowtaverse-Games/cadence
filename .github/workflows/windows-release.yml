@@ -1,0 +1,84 @@
+name: Windows Release
+
+on:
+  push:
+    tags: ['windows-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: windows/global.json
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:RELEASE_TAG -cnotmatch '^windows-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            throw 'Expected windows-vX.Y.Z (stable SemVer without leading zeros).'
+          }
+          "RELEASE_VERSION=$($env:RELEASE_TAG.Substring(9))" >> $env:GITHUB_ENV
+      - name: Restore locked dependencies
+        run: dotnet restore Cadence.sln --locked-mode
+      - name: Build
+        run: dotnet build Cadence.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Cadence.sln --configuration Release --no-build --no-restore --logger "trx;LogFileName=tests.trx" --logger "console;verbosity=normal"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-release-test-results
+          path: windows/**/TestResults/*.trx
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Restore pinned packaging tool
+        run: |
+          $tool = (Get-Content .config/dotnet-tools.json | ConvertFrom-Json).tools.vpk.version
+          $package = ([xml](Get-Content Cadence.Tray/Cadence.Tray.csproj)).SelectSingleNode('//PackageReference[@Include="Velopack"]').Version
+          if ($tool -ne $package) { throw 'Velopack package and tool versions must match.' }
+          dotnet tool restore
+      - name: Publish with locked dependencies
+        run: dotnet publish Cadence.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:RestoreLockedMode=true "-p:Version=$env:RELEASE_VERSION"
+      - name: Check publish contents
+        run: ./scripts/Assert-PublishContents.ps1 -Path Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish
+      - name: Download previous release for delta generation
+        run: |
+          # Only an empty stable Windows release history is a first release.
+          # API/network/download errors must fail instead of silently losing deltas.
+          $releases = @()
+          $page = 1
+          do {
+            $batch = @(Invoke-RestMethod "https://api.github.com/repos/Meowtaverse-Games/cadence/releases?per_page=100&page=$page" -Headers @{ 'User-Agent' = 'Cadence-release-ci' })
+            $releases += $batch
+            $page++
+          } while ($batch.Count -eq 100)
+          $previous = @($releases | Where-Object { !$_.draft -and !$_.prerelease -and $_.tag_name -cmatch '^windows-v' -and $_.assets.name -contains 'releases.win.json' })
+          if ($previous.Count -gt 0) {
+            dotnet vpk download github --repoUrl https://github.com/Meowtaverse-Games/cadence --channel win --outputDir Releases
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host 'No previous stable Windows release; creating the first full package.'
+          }
+      - name: Pack installer and update packages
+        run: dotnet vpk pack --packId Cadence --packVersion "$env:RELEASE_VERSION" --packDir Cadence.Tray/bin/Release/net8.0-windows/win-x64/publish --mainExe Cadence.Tray.exe --channel win --outputDir Releases --noPortable
+      - name: Publish GitHub release for the approved tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: dotnet vpk upload github --repoUrl https://github.com/Meowtaverse-Games/cadence --token "$env:GH_TOKEN" --tag "$env:RELEASE_TAG" --releaseName "Windows $env:RELEASE_VERSION" --channel win --outputDir Releases --publish

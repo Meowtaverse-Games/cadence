@@ -88,6 +88,27 @@ internal static class DesignPreview
             bitmap.Save(Path.Combine(directory, "settings-alert-blocked.png"), ImageFormat.Png);
             form.Close();
         }
+        var updateStates = new[] { "最新", "ダウンロード中", "ダウンロード済み・自由時間に再起動して入れ替え",
+            "確認に失敗: HttpRequestException: ネットワークまたは配信元に接続できません", "手動で置いた版のため自動更新しない" };
+        for (var index = 0; index < updateStates.Length; index++)
+        {
+            DesignTheme.PreviewHighContrast = index == 3;
+            try
+            {
+                using var form = SettingsForm.Preview(snapshots[1] with {
+                    Update = new("0.2.0", updateStates[index], now.AddMinutes(-1), index != 1 && index != 4) });
+                form.SelectPage(3);
+                form.Show();
+                Application.DoEvents();
+                form.ScrollPreviewToUpdates();
+                Application.DoEvents();
+                using var bitmap = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                bitmap.Save(Path.Combine(directory, $"settings-update-{index}.png"), ImageFormat.Png);
+                form.Close();
+            }
+            finally { DesignTheme.PreviewHighContrast = false; }
+        }
         DesignTheme.PreviewHighContrast = true;
         try
         {
