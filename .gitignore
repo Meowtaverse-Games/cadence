@@ -11,6 +11,10 @@ firestore-debug.log*
 *.cer
 *.certSigningRequest
 *.mobileprovision
+google-services.json
+*.jks
+*.keystore
+keystore.properties
 .env
 .env.*
 !.env.example
@@ -52,3 +56,13 @@ windows/design-preview/
 
 # Generated Windows update packages
 windows/Releases/
+
+# Android / Gradle
+.gradle/
+android/**/build/
+android/local.properties
+android/.kotlin/
+*.apk
+*.aab
+.idea/
+captures/

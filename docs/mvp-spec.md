@@ -3,7 +3,7 @@
 ## 目的
 
 先に決めた時間割（例: 19:00〜22:00 の間、10分は自由・20分はブロックを繰り返す）に従い、
-iPhone と Windows PC の指定アプリを、利用者が何も操作しなくても自動でブロック・解除する。
+iPhone、Android、Windows PC の指定アプリを、利用者が何も操作しなくても自動でブロック・解除する。
 ポモドーロの「集中」と「休憩」を、本人の意思ではなく時間割で強制する。
 
 ## 決定済みの前提
@@ -13,11 +13,12 @@ iPhone と Windows PC の指定アプリを、利用者が何も操作しなく�
 | 利用形態 | 利用者本人が自分の端末に設定する（保護者による管理は MVP の対象外） |
 | iOS | Swift / SwiftUI、iOS 16 以上、`FamilyControls` の `.individual` 認可 |
 | Windows | C# / .NET 8 のタスクトレイ常駐アプリ（Windows サービスにはしない） |
+| Android | Kotlin / Jetpack Compose のホームアプリ（ランチャー）。前面のアプリの検知でブロック画面を出す。ユーザー補助サービスと端末管理（Device Owner）は使わない |
 | 同期 | Firebase（Authentication のメール・パスワード、Cloud Firestore）。同期するのは時間割だけ |
-| 時間割の編集 | iPhone アプリだけで行う。Windows は読み取り専用 |
-| ブロック対象 | 端末ごとに選び、その端末にだけ保存する（同期しない）。iPhone はアプリ選択画面、Windows は exe 名 |
+| 時間割の編集 | iPhone アプリだけで行う。Windows と Android は読み取り専用 |
+| ブロック対象 | 端末ごとに選び、その端末にだけ保存する（同期しない）。iPhone はアプリ選択画面、Windows は exe 名、Android はパッケージ名 |
 | タイムゾーン | MVP は `Asia/Tokyo`（UTC+9 固定、夏時間なし）だけを扱う |
-| 配布 | iOS は Codemagic でビルドし TestFlight で配布。Windows は GitHub Releases の Setup.exe |
+| 配布 | iOS は Codemagic でビルドし TestFlight で配布。Windows は GitHub Releases の Setup.exe。Android は Play ストアを通さず、署名した APK を直接入れる |
 | 実機確認 | 配布用 entitlement の承認前は、Codemagic で開発用の署名のビルドを作り、登録した端末に入れて確かめる |
 | bundle ID | `com.meowtaverse-games.cadence` |
 
@@ -120,8 +121,8 @@ iPhone は保存の前に検証し、無効なら保存せずに理由を画面�
 例: `block` 25 分だけのパターンを 19:00〜22:00 に置くと、2. で 21:55〜22:00 の 5 分が
 できるが、3. で前の区間とまとまるので、結果は 19:00〜22:00 の1区間になる。
 
-この規則は Swift（`ios/CadenceCore`）と C#（`windows/Cadence.Core`）に二重に実装する。
-両者が一致することを、`spec/fixtures/*.json` の共通テストケースで確かめる。
+この規則は Swift（`ios/CadenceCore`）、C#（`windows/Cadence.Core`）、Kotlin（`android/core`）に
+実装する。3つが一致することを、`spec/fixtures/*.json` の共通テストケースで確かめる。
 各ケースは、入力の時間割、期間、期待する結果（ブロック区間の一覧、または「無効」）を持つ。
 少なくとも次を含める。
 
@@ -326,6 +327,115 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
   （Firebase CLI の `firebase/firebase.json` とは別物）。
 - 時間割もキャッシュも無いときはブロックせず、トレイの表示で知らせる。
 
+## Android アプリ
+
+ホームアプリ（ランチャー）として動き、ブロック中はブロック対象のアプリをホームから隠す。
+ホームを通らずに開いた場合（通知、最近使ったアプリ、他のアプリのリンク、検索など）と、ブロックの区間が
+始まった時点でブロック対象が前面にあった場合（遊んでいる途中のゲームなど）は、前面のアプリを検知して
+ブロック画面を前に出す。Android には iOS の Screen Time にあたる公開 API が無く、ユーザー補助サービス
+（AccessibilityService）は Play ストアの審査が厳しく、端末管理（Device Owner）は端末の初期化が要るため、
+この2つは使わない。
+
+### 構成
+
+- `android/` に Gradle のプロジェクトを置く。Gradle wrapper をコミットし、依存の版は version catalog
+  （`android/gradle/libs.versions.toml`）で固定する。動的な版（`+`、`latest.release`）は使わない。
+  - `android/core`: 時間割の検証と展開（Kotlin/JVM、Android に依存しない）。`spec/fixtures/` の
+    共通テストケースを JUnit で読む。JSON の値の木を受け取って検証する入口を持つ
+    （Firestore の値を直してから渡すため）。
+  - `android/app`: アプリ本体（Kotlin、Jetpack Compose）。
+- applicationId は `com.meowtaversegames.cadence`（Android の ID にはハイフンを使えないので、
+  iOS の bundle ID と違う）。
+- minSdk は 29（Android 10。`UsageEvents.Event.ACTIVITY_RESUMED` を使うため）。targetSdk と
+  compileSdk は実装の時点の最新の安定版にする。
+- 文字数とコードポイント列の比較は、Kotlin でも Swift・C# と同じ定義に従う（`String.length` は
+  UTF-16 の長さなので使わず、`codePointCount` やコードポイントの列で数え・比べる）。
+
+### ホーム画面
+
+ミニマルな縦一列のランチャーとする。アイコンの格子は使わない。見た目は Cadence 独自のものとし、
+既存のランチャーの名前・アイコン・画面をまねない。
+
+- 背景はシステムの壁紙（`android:windowShowWallpaper`）。文字が読めるよう、暗い半透明の層を敷く。
+- 上部: 時刻と日付、今の状態（「集中の時間 · 20:30 まで」「自由時間 · 次の集中 20:30」
+  「時間割がありません」など）。
+- お気に入り: 利用者が選んだ最大 8 個のアプリを、アイコンと名前で縦に並べる。並べ替えができる。
+- すべてのアプリ: 上へのスワイプか「すべてのアプリ」で開く。名前の順（日本語の `Collator`）に並べ、
+  画面の端に頭文字の索引（`android.icu.text.AlphabeticIndex` の日本語と英語の見出し）を置き、
+  なぞるとその位置へ移る。一覧の上に名前の検索欄を置く。
+- アプリの長押し: お気に入りに追加・外す、集中時間に止めるアプリにする・外す、アプリ情報、アンインストール。
+- ブロック中: ブロック対象のアプリを、お気に入り・一覧・検索結果のすべてから隠し、
+  「N 個のアプリを 20:30 まで休ませています」と1行で示す。
+- ホームボタンを押すと、いつもお気に入りの画面に戻る。
+- アプリの一覧は `LauncherApps` で取り、追加・削除・更新（`LauncherApps.Callback`）で作り直す。
+  対象は端末の利用者本人のプロファイルだけとする（仕事用プロファイルは MVP の対象外）。
+- MVP の対象外: ウィジェット、通知の表示、ドック、フォルダ、アイコンパック、ジェスチャーの設定。
+
+### ブロック
+
+- ブロック対象はパッケージ名の一覧で、端末のアプリ専用の領域にだけ保存する（同期しない）。
+  Cadence 自身、既定の電話アプリ、システムの設定アプリは選べない（権限を直せなくなるのを防ぐため）。
+- ブロックするかどうかは、イベントの種類で決めず、毎回「時間割と時刻から、その時点がブロック区間の中か」で
+  決める（冪等にする）。区間は `android/core` で現在から 14 日先まで展開して求める。
+- 境目の予約: 次の境目（ブロック区間の開始または終了）に、`AlarmManager.setExactAndAllowWhileIdle` で
+  アラームを1件だけ予約する。予約し直すのは、アラームが鳴ったとき、時間割が変わったとき、端末の起動
+  （`BOOT_COMPLETED`）、時刻とタイムゾーンの変更（`TIME_SET`、`TIMEZONE_CHANGED`）、アプリの更新
+  （`MY_PACKAGE_REPLACED`）、ホーム画面が前面に戻ったとき。
+- ブロック中は foreground service（type は `specialUse`）を動かし、通知に「集中の時間です · 20:30 まで」を
+  出し続ける。1 秒ごとに `UsageStatsManager.queryEvents` で前面のアプリを求め、ブロック対象ならブロック画面を
+  前に出す。区間の始まりにもすぐに1回判定する。区間が終わったら service を止める。
+  service が動いていない間（自由時間）は、前面のアプリを調べない。
+- 前面のアプリは、`ACTIVITY_RESUMED` のイベントを前回の確認から追い、最後に前面に来たパッケージとする
+  （service の開始時は直近 10 分を見る）。Cadence 自身が前面に来たイベントも数える。
+- ブロック画面（`BlockActivity`）: 全画面で「集中の時間です」と終わりの時刻、「ホームへ」のボタンを示す。
+  戻る操作もホームへ移る。最近使ったアプリの一覧に残さない（`excludeFromRecents`）。
+  アプリの上に重ねる窓（`TYPE_APPLICATION_OVERLAY`）は使わない。重ねるだけでは下のアプリが前面のまま
+  動き続け、ゲームの音も止まらないため。画面として前に出し、下のアプリを一時停止の状態にする。
+- 目安: ブロック対象が前面に来てから、または区間が始まってから 2 秒以内にブロック画面が出る。
+  他のアプリのプロセスは終了しない（Android では他のアプリを強制終了できない）。
+- 必要な権限: 使用状況へのアクセス（`PACKAGE_USAGE_STATS`）、他のアプリの上に重ねて表示
+  （`SYSTEM_ALERT_WINDOW`。背景から画面を前に出す制限の例外にあたるため）、アラームとリマインダー
+  （`SCHEDULE_EXACT_ALARM`）、通知（`POST_NOTIFICATIONS`）、既定のホームアプリ。どれかが欠けているときは、
+  ホーム画面の上部に何が足りないかと、その設定画面へのボタンを示す。ブロックが効かない状態を黙っていない。
+- 端末によっては電池の管理で service が止められるので、設定画面に電池の最適化の対象から外す案内を置く。
+- 時間割もキャッシュも無いときはブロックせず、ホーム画面の上部でそのことを示す。
+- ログ（ブロック画面を出した時刻とパッケージ、境目の予約、権限の状態）は端末の中にだけ残し、
+  時間割の中身・uid・メールアドレス・パスワードは残さない。
+
+### 同期
+
+- Firebase の Android SDK（Authentication、Firestore）を使う。`google-services.json` はリポジトリに
+  含めない。`android/app/google-services.json` があるときだけ google-services の Gradle plugin を適用し、
+  無いビルドでは Firebase を初期化せず「このビルドには Firebase の設定がありません」と示す
+  （CI はファイルなしで通す）。
+- メール・パスワードでサインインする。アカウント作成とパスワード再設定の UI は置かない。失敗は日本語で案内する。
+- サインイン中は、アプリのプロセスが動いている間 `users/{uid}/config/timetable` の snapshot listener を保ち、
+  サインアウトで外す。ホームアプリなので、プロセスは通常いつも動いている。永続オフラインキャッシュを使う。
+- Firestore の値を JSON の値の木に直してから `android/core` で検証する。`Long` は整数、`Double` は
+  数値のまま渡す（`10.0` が整数として通るかは検証規則に任せる）。`Timestamp`（`updatedAt`）は文字列にする
+  （検証の対象外で無視される）。
+- 有効な時間割はアプリ専用の領域にキャッシュする。文書が無い・無効・エラーのときは、直前に有効だった時間割で
+  ブロックを続け、理由をホーム画面と設定画面に示す（Windows と同じく、ブロックが外れる方向に倒さない）。
+  サインアウトしても、キャッシュの時間割でブロックを続ける。
+- Android からは書き込まない。
+
+### 設定画面
+
+サインイン、同期の状態と最終同期時刻、権限の状態と各設定画面への移動、ブロック対象の一覧（追加・削除）、
+既定のホームアプリの設定への移動、電池の最適化の案内、版の表示。
+
+debug ビルドだけ、Firebase なしでブロックを確かめるため「今から 15 分ブロックする時間割を入れる」を置く
+（合成の時間割を端末のキャッシュに入れる）。release ビルドには含めない。
+
+### 実機で確かめること
+
+- ホームを通らない入り口（通知、最近使ったアプリ、他のアプリのリンク、Google の検索、設定のアプリ情報）から
+  ブロック対象を開いたとき、2 秒以内にブロック画面が出ること
+- ゲームを遊んでいる途中に区間が始まると、ブロック画面が出てゲームが一時停止し、音が止まること
+- 画面を消して置いておいた（Doze）あとでも、区間の始まりにブロックが始まること
+- 再起動のあと、操作なしで次の区間にブロックがかかること
+- 端末メーカー独自の電池の管理で service やアラームが止められないこと
+
 ## Firebase
 
 - Authentication: メール・パスワードだけを有効にし、利用者のアカウントを1件だけ手動で作る。
@@ -370,6 +480,9 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
 - Windows: 本人の承認後に `windows-vX.Y.Z` タグを push したときだけ、GitHub Actions で
   self-contained のアプリを Velopack で梱包し、GitHub Releases に公開する。main のマージでは公開しない。
   PR / push の CI では公開しない確認用 Setup.exe と更新パッケージを成果物として保存する。
+- Android: PR / push の CI（`ubuntu-latest`）で debug の APK を成果物として保存する。release の署名の鍵は
+  リポジトリに含めず、CI の secret に置く。GitHub Releases は Windows の自動更新専用なので使わない
+  （Velopack は新しい順に 10 件の Release しか見ないため）。配り方と更新の方法は PR A4 で決める。
 
 ## MVP の対象外
 
@@ -377,7 +490,8 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
 - Live Activity、ウィジェット
 - 解除のしにくさの強化（待ち時間、アプリ削除の防止、Windows サービス化）
 - 保護者による管理（`.child` 認可）
-- Windows からの時間割の編集、Mac・Android 版
+- Windows と Android からの時間割の編集、Mac 版
+- Android の Play ストアでの配布、ユーザー補助サービスや端末管理によるブロック
 - `Asia/Tokyo` 以外のタイムゾーン
 
 ## 実装の順序
@@ -391,6 +505,10 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
 | 4a | iOS の Screen Time 連携（extension、スケジュール、shield、画面、端末内だけの時間割の編集）と、Codemagic の開発用署名のワークフロー、`docs/apple-setup.md` | 2 |
 | 4b | iOS の Firebase 連携（サインイン、時間割の読み書きと変更の受信、`Package.resolved`） | 4a、3a のルールと Firebase の準備 |
 | 5 | Codemagic の設定と TestFlight 配布 | 4b、entitlement の承認 |
+| A1 | Kotlin の `android/core`、Gradle のプロジェクト、Android の CI | 1 の共通テストケース |
+| A2 | Android のホームアプリとブロック（端末内のキャッシュの時間割と、debug ビルドの確認用の時間割で動かす） | A1 |
+| A3 | Android の Firebase 連携（サインイン、時間割の受信とキャッシュ） | A2、3a のルールと Firebase の準備 |
+| A4 | Android の release の署名と配布の方法 | A3 |
 
 PR 4 は、Firebase が無くても iPhone でブロックを確かめられるように 4a と 4b に分ける。
 4a では時間割を端末の App Group にだけ保存し、4b で Firestore と同期する。
