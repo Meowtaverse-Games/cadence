@@ -27,6 +27,7 @@ internal static class Program
         if (!created) return 0;
         try
         {
+            StartupRegistration.Update();
             ApplicationConfiguration.Initialize();
             using var context = new TrayContext(TimeProvider.System);
             Application.Run(context);

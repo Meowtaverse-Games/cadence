@@ -45,10 +45,10 @@ internal static class StartupRegistration
         if (enabled)
         {
             var locator = VelopackLocator.Current;
-            var executable = locator.CurrentlyInstalledVersion is not null && !locator.IsPortable
-                ? Path.Combine(locator.RootAppDir!, "Cadence.Tray.exe")
-                : Path.GetFullPath(Environment.ProcessPath!);
-            key.SetValue("Cadence", "\"" + executable + "\"");
+            var executable = StartupCommand.Executable(Environment.ProcessPath!,
+                locator.CurrentlyInstalledVersion is not null, locator.IsPortable, locator.RootAppDir, locator.AppId);
+            if (!File.Exists(executable)) throw new FileNotFoundException("Startup executable is missing.");
+            key.SetValue("Cadence", StartupCommand.RegistryValue(executable));
         }
         else key.DeleteValue("Cadence", throwOnMissingValue: false);
     }
