@@ -11,7 +11,7 @@ final class AppModel: ObservableObject {
     @Published var blocked = false
     @Published var next: Date?
     @Published var inactiveReason: String?
-    @Published var activityCount = 0
+    @Published var activityCount: Int?
     @Published var error: String?
     @Published var registrationErrors: [String] = []
     @Published var isRefreshing = false

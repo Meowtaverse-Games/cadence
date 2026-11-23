@@ -59,7 +59,7 @@ struct HomeState {
     var document: LocalTimetable
     var authorized: Bool
     var inactiveReason: String?
-    var activityCount: Int
+    var activityCount: Int?
     var counts: String
     var refreshing = false
     var errors: [String] = []
@@ -73,7 +73,7 @@ struct HomeState {
     var window: DisplayWindow?
     var reference: Date? // Debug previews can freeze the display clock without a service.
 
-    init(document: LocalTimetable, authorized: Bool, inactiveReason: String?, activityCount: Int,
+    init(document: LocalTimetable, authorized: Bool, inactiveReason: String?, activityCount: Int?,
          counts: String, now: Date = Date()) {
         self.document = document; self.authorized = authorized; self.inactiveReason = inactiveReason
         self.activityCount = activityCount; self.counts = counts
@@ -179,7 +179,7 @@ struct HomeScreen<Conflict: View>: View {
             }
         }.buttonStyle(CadenceButtonStyle()).accessibilityLabel("同期の状態: \(state.syncStatus)")
     }
-    private var monitor: some View { Text("MONITOR \(state.activityCount)/8") }
+    private var monitor: some View { Text("MONITOR \(state.activityCount.map { String($0) } ?? "—")/8") }
     private var permission: some View { Text(state.authorized ? "SCREEN TIME OK" : "NOT ALLOWED") }
     private var logLink: some View { NavigationLink("LOG") { LogView() }.frame(minWidth: 44, minHeight: 44).accessibilityLabel("記録") }
 }

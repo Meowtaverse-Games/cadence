@@ -59,7 +59,7 @@ public final class CoalescingRefreshQueue<Output> {
             DispatchQueue.main.async {
                 self.didRefresh?(output)
                 completions.forEach { $0(output) }
-                if self.pendingEvents.isEmpty {
+                if self.pendingBatch == nil {
                     self.isRunning = false
                     self.didChangeRunning?(false)
                 } else {
