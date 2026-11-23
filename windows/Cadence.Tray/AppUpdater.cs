@@ -22,5 +22,6 @@ internal sealed class AppUpdater : IAppUpdater
     }
     public Task DownloadAsync(CancellationToken cancellation) => Task.Run(
         () => manager.DownloadUpdatesAsync(available!, cancelToken: cancellation), cancellation);
-    public void ApplyAndRestart() => manager.ApplyUpdatesAndRestart(manager.UpdatePendingRestart);
+    public void ApplyAndRestart() => manager.ApplyUpdatesAndRestart(
+        manager.UpdatePendingRestart ?? throw new InvalidOperationException("No pending update package."));
 }

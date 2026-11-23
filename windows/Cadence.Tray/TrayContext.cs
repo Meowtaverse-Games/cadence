@@ -24,6 +24,7 @@ internal sealed class TrayContext : ApplicationContext
     private bool highContrast = DesignTheme.HighContrast;
     private SettingsForm? settings;
     private bool syncing;
+    private int settingsOperations;
     private bool exiting;
     private bool initialSync = true;
 
@@ -42,7 +43,7 @@ internal sealed class TrayContext : ApplicationContext
         service = new(configuration.Config is { } config ? new FirebaseClient(config, clock, new HttpClientHandler()) : null,
             new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write);
         updates = new(() => new AppUpdater(), AppUpdater.BuildVersion, clock,
-            () => !syncing && UpdatePolicy.CanRestart(service.State.Timetable, clock, settings is not null && !settings.IsDisposed),
+            () => !syncing && settingsOperations == 0 && UpdatePolicy.CanRestart(service.State.Timetable, clock, settings is not null && !settings.IsDisposed),
             log.Write, UpdateDisplay);
         updateTimer.Tick += async (_, _) => await updates.TickAsync(false, shutdown.Token);
         openSettingsOnStartup = StartupSettings.ShouldOpen(configuration.Usable, service.HasSavedSession);
@@ -68,7 +69,13 @@ internal sealed class TrayContext : ApplicationContext
             }
             catch { log.Write("tray_tick_failed"); }
         };
-        syncTimer.Tick += async (_, _) => await SynchronizeAsync();
+        syncTimer.Tick += async (_, _) =>
+        {
+            await SynchronizeAsync();
+            // Both timers run every minute. Reconsider after sync completes so a
+            // coincident sync tick cannot indefinitely postpone a pending update.
+            if (!exiting) await updates.TickAsync(false, shutdown.Token);
+        };
         UpdateDisplay();
         blockTimer.Start();
         syncTimer.Start();
@@ -146,7 +153,8 @@ internal sealed class TrayContext : ApplicationContext
         {
             settings = new SettingsForm(service, executables, SaveExecutables, UpdateDisplay, log,
                 Path.GetDirectoryName(configuration.Path)!, ReloadConfigurationAsync,
-                () => updates.TickAsync(true, shutdown.Token));
+                () => updates.TickAsync(true, shutdown.Token),
+                active => settingsOperations += active ? 1 : -1);
             settings.FormClosed += (_, _) => settings = null;
         }
         UpdateDisplay();

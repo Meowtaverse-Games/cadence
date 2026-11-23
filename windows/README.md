@@ -170,7 +170,8 @@ Windows CI の `windows-design-preview` に、合成データだけで描いた�
 最小サイズで右端へスクロールした画面、ブロック中の ALERT、システム色による高コントラスト配色の画面と、
 16 / 20 / 24 / 32px のトレイアイコンを保存する。画像生成と artifact の保存も CI の必須検証に含める。
 Windows 上では build 後に次で生成できる。通常起動と独立した経路なので、実際の設定・
-AppData・レジストリ・プロセス一覧・Firebase を読み書きしない。
+Cadence の保存先・レジストリ・プロセス一覧・Firebase を読み書きしない。
+共通の Velopack 起動処理による診断ログは作られる場合がある。
 
 ```sh
 dotnet run --project Cadence.Tray -c Release --no-build --no-restore -- --design-preview design-preview

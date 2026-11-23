@@ -17,6 +17,7 @@ internal sealed class SettingsForm : ChromeForm
     private readonly Action changed;
     private readonly DailyLog? log;
     private readonly Func<Task> reloadConfiguration;
+    private readonly Action<bool>? operationChanged;
     private readonly bool preview;
     private readonly DesignTheme theme = new();
     private readonly System.Windows.Forms.Timer displayTimer = new() { Interval = 1000 };
@@ -68,14 +69,17 @@ internal sealed class SettingsForm : ChromeForm
     private int page;
 
     public SettingsForm(SyncService service, List<string> executables, Func<List<string>, bool> saveExecutables,
-        Action changed, DailyLog log, string configurationDirectory, Func<Task> reloadConfiguration, Func<Task> checkForUpdates)
-        : this(service, executables, saveExecutables, changed, log, configurationDirectory, reloadConfiguration, false, checkForUpdates) { }
+        Action changed, DailyLog log, string configurationDirectory, Func<Task> reloadConfiguration, Func<Task> checkForUpdates,
+        Action<bool> operationChanged)
+        : this(service, executables, saveExecutables, changed, log, configurationDirectory, reloadConfiguration, false, checkForUpdates, operationChanged) { }
 
     private SettingsForm(SyncService? service, List<string> executables, Func<List<string>, bool> saveExecutables,
-        Action changed, DailyLog? log, string configurationDirectory, Func<Task> reloadConfiguration, bool preview, Func<Task>? checkForUpdates = null)
+        Action changed, DailyLog? log, string configurationDirectory, Func<Task> reloadConfiguration, bool preview,
+        Func<Task>? checkForUpdates = null, Action<bool>? operationChanged = null)
     {
         this.service = service; this.executables = executables; this.saveExecutables = saveExecutables;
         this.changed = changed; this.log = log; this.reloadConfiguration = reloadConfiguration; this.preview = preview;
+        this.operationChanged = operationChanged;
         SuspendLayout();
         Text = "Cadence — 設定"; Font = theme.Body;
         AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96, 96);
@@ -232,8 +236,8 @@ internal sealed class SettingsForm : ChromeForm
         if (first && !value.ConfigurationUsable) SelectPage(3);
         connection.Text = value.Connection;
         var update = value.Update;
-        updateVersion.Text = "現在の版  " + (update?.Version ?? "0.2.0");
-        updateStatus.Text = update?.Status ?? "ダウンロード済み・自由時間に再起動して入れ替え";
+        updateVersion.Text = "現在の版  " + (update?.Version ?? "不明");
+        updateStatus.Text = update?.Status ?? "未確認";
         updateChecked.Text = "最終確認  " + (update?.LastChecked is { } checkedAt ? ScheduleStatus.JapanTime(checkedAt) : "未確認");
         checkUpdate.Enabled = update?.CanCheck ?? true;
         lastSync.Text = "最終同期  " + (value.LastSync is { } at ? ScheduleStatus.JapanTime(at) : "未取得");
@@ -365,6 +369,7 @@ internal sealed class SettingsForm : ChromeForm
 
     internal static SettingsForm Preview(SettingsSnapshot value)
     {
+        value = value with { Update = value.Update ?? new("0.2.0", "ダウンロード済み・自由時間に再起動して入れ替え", value.Now, true) };
         var form = new SettingsForm(null, ["game.exe", "launcher.exe", "video.exe", "chat.exe"], _ => false, () => { }, null, "", () => Task.CompletedTask, true);
         form.logged = TodayActivity.Parse(["19:14:00 process_terminated exe=game.exe", "19:16:00 process_terminated exe=game.exe", "19:15:00 process_terminated exe=launcher.exe"], new DateOnly(2026, 1, 5));
         form.RefreshStatus(value); form.UpdateCounts(value.Now ?? DateTimeOffset.Parse("2026-01-05T19:20:00+09:00", CultureInfo.InvariantCulture)); return form;
@@ -380,6 +385,7 @@ internal sealed class SettingsForm : ChromeForm
     {
         if (busy) return;
         busy = true;
+        operationChanged?.Invoke(true);
         changed();
         error.Text = "";
         try { await reloadConfiguration(); }
@@ -388,13 +394,14 @@ internal sealed class SettingsForm : ChromeForm
             if (!IsDisposed) error.Text = "接続設定を読み直せません。もう一度お試しください。";
             log?.Write("config_reload_failed");
         }
-        finally { busy = false; if (!IsDisposed) changed(); }
+        finally { busy = false; operationChanged?.Invoke(false); if (!IsDisposed) changed(); }
     }
 
     private async Task AuthenticateAsync(bool signingIn)
     {
         if (busy) return;
         busy = true;
+        operationChanged?.Invoke(true);
         changed();
         error.Text = "";
         try
@@ -417,7 +424,7 @@ internal sealed class SettingsForm : ChromeForm
             if (!IsDisposed) error.Text = "操作を完了できません。もう一度お試しください。";
             log?.Write("account_operation_failed");
         }
-        finally { busy = false; if (!IsDisposed) changed(); }
+        finally { busy = false; operationChanged?.Invoke(false); if (!IsDisposed) changed(); }
     }
 
     private void AddExecutable(string name)

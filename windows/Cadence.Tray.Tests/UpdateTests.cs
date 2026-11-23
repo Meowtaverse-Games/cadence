@@ -157,6 +157,40 @@ public sealed class UpdateTests
         Assert.Equal(0, backend.Applies);
     }
 
+    [Fact]
+    public async Task RechecksScheduleAfterDownloadRatherThanUsingCheckTime()
+    {
+        var backend = new FakeUpdater { DownloadCompletion = new TaskCompletionSource<bool>() };
+        var clock = new FakeClock { Now = DateTimeOffset.Parse("2026-01-05T19:00:00+09:00") };
+        var timetable = TimetableParser.Parse(Samples.Timetable("basic")).Timetable;
+        var updates = Create(backend, clock, () => UpdatePolicy.CanRestart(timetable, clock, false));
+        var downloading = updates.TickAsync(true, default);
+        Assert.Equal("ダウンロード中", updates.Snapshot.Status);
+        Assert.False(updates.Snapshot.CanCheck);
+        clock.Now = clock.Now.AddMinutes(10);
+        backend.DownloadCompletion.SetResult(true);
+        await downloading;
+        Assert.True(backend.HasPendingUpdate);
+        Assert.Equal(0, backend.Applies);
+        clock.Now = clock.Now.AddMinutes(20);
+        await updates.TickAsync(false, default);
+        Assert.Equal(1, backend.Applies);
+    }
+
+    [Fact]
+    public async Task InitializationFailureDoesNotEscapeAndRecoversOnScheduledCheck()
+    {
+        var clock = new FakeClock();
+        var backend = new FakeUpdater { Available = false };
+        var calls = 0;
+        var updates = new UpdateCoordinator(() => ++calls == 1 ? throw new IOException("private path") : backend,
+            "0.2.0", clock, () => true, _ => { }, () => { });
+        Assert.Contains("確認に失敗", updates.Snapshot.Status);
+        clock.Now = clock.Now.AddMinutes(1);
+        await updates.TickAsync(false, default);
+        Assert.Equal("最新", updates.Snapshot.Status);
+    }
+
     private static UpdateCoordinator Create(FakeUpdater backend, FakeClock clock, Func<bool>? safe = null) =>
         new(() => backend, "0.2.0", clock, safe ?? (() => true), _ => { }, () => { });
 
@@ -170,8 +204,14 @@ public sealed class UpdateTests
         public int Applies { get; private set; }
         public string? FailureStage { get; set; }
         public TaskCompletionSource<bool>? CheckCompletion { get; init; }
+        public TaskCompletionSource<bool>? DownloadCompletion { get; init; }
         public Task<bool> CheckAsync() { Checks++; Fail("check"); return CheckCompletion?.Task ?? Task.FromResult(Available); }
-        public Task DownloadAsync(CancellationToken cancellation) { Fail("download"); HasPendingUpdate = true; return Task.CompletedTask; }
+        public async Task DownloadAsync(CancellationToken cancellation)
+        {
+            Fail("download");
+            if (DownloadCompletion is not null) await DownloadCompletion.Task;
+            HasPendingUpdate = true;
+        }
         public void ApplyAndRestart() { Fail("apply"); Applies++; }
         private void Fail(string stage) { if (stage == FailureStage) throw new IOException("https://example.invalid/?token=secret C:\\Users\\synthetic"); }
     }
