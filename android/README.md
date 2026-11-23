@@ -28,9 +28,6 @@ app は現段階では unit test を持たないため、`testDebugUnitTest` の
 CI では JDK 21 と Android SDK がある Ubuntu ランナーで検証し、JUnit XML を
 `android-test-results`、APK を `cadence-android-debug-apk` に保存する。
 
-## 現在のブロッカー
-
-キャッシュ済み Gradle 8.13 が Linux ARM64 の `libnative-platform.so` を読み込めず、起動に失敗した。
-実装指示に従って起動の回避策を試していないため、wrapper のスクリプトと JAR は未生成。
-`gradle-wrapper.properties` に選定した distribution の版と公式 SHA-256 は記載したが、
-wrapper 生成とコミットが済むまでは上記コマンドと CI は実行できない。
+Linux ARM64 の実行環境では Gradle の native library を読み込めない場合があるため、
+その環境ではローカルの実行を省略し、Android workflow で core を含めて検証する。
+共有 fixtures は103件。テストは件数を固定せず、追加された JSON も自動で取り込む。
