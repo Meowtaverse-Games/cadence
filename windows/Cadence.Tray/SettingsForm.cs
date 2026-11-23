@@ -309,7 +309,7 @@ internal sealed class SettingsForm : ChromeForm
         using var mark = MarkRenderer.Draw(ScalePixel(40), null);
         e.Graphics.DrawImageUnscaled(mark, ScalePixel(18), ScalePixel(21));
         TextRenderer.DrawText(e.Graphics, "C A D E N C E", theme.Tag, new Point(ScalePixel(68), ScalePixel(24)), DesignTheme.Text);
-        TextRenderer.DrawText(e.Graphics, "v" + typeof(SettingsForm).Assembly.GetName().Version?.ToString(3), theme.Mono, new Point(ScalePixel(68), ScalePixel(46)), DesignTheme.Muted);
+        TextRenderer.DrawText(e.Graphics, "v" + (snapshot?.Update?.Version ?? AppUpdater.BuildVersion), theme.Mono, new Point(ScalePixel(68), ScalePixel(46)), DesignTheme.Muted);
         using var line = new Pen(DesignTheme.HighContrast ? SystemColors.WindowText : ColorTranslator.FromHtml("#16232A"));
         e.Graphics.DrawLine(line, sidebar.Width - 1, 0, sidebar.Width - 1, sidebar.Height);
         if (snapshot is not { } value) return;
