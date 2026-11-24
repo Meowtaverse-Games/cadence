@@ -77,3 +77,47 @@ fun updateLaunchStatus(old: LaunchStatus, elapsed: Long, resumed: Boolean, shoul
     shouldLaunch && old.firstAttempt == null -> old.copy(firstAttempt = elapsed)
     else -> old
 }
+
+enum class ReconcileSource { ALARM, SYSTEM_BROADCAST, VISIBLE_ACTIVITY, DATA_CHANGED, SERVICE }
+enum class ServicePhase { STOPPED, START_REQUESTED, RUNNING }
+enum class ServiceAction { START_DIRECTLY, IMMEDIATE_ALARM, KEEP, STOP }
+
+/** KEEP after an alarm denial means no immediate re-reservation; boundary scheduling is independent. */
+fun serviceAction(
+    shouldRun: Boolean,
+    source: ReconcileSource,
+    phase: ServicePhase,
+    startDenied: Boolean = false,
+): ServiceAction = when {
+    startDenied -> if (source == ReconcileSource.ALARM) ServiceAction.KEEP else ServiceAction.IMMEDIATE_ALARM
+    // Never cancel a pending startForegroundService before the service fulfils its contract.
+    phase == ServicePhase.START_REQUESTED -> ServiceAction.KEEP
+    !shouldRun -> ServiceAction.STOP
+    phase == ServicePhase.RUNNING -> ServiceAction.KEEP
+    source == ReconcileSource.DATA_CHANGED -> ServiceAction.IMMEDIATE_ALARM
+    source == ReconcileSource.SERVICE -> ServiceAction.KEEP
+    else -> ServiceAction.START_DIRECTLY
+}
+
+/** Lifecycle callbacks must not evict events that the next overlapping query will read again. */
+fun acknowledgeBlockWindow(
+    previous: ForegroundState,
+    previousRead: Long?,
+    targets: Set<String>,
+    block: BlockWindow,
+): ForegroundState = reduceForeground(previous, emptyList(), previousRead ?: Long.MIN_VALUE + 10_000L,
+    targets, block).state
+
+/** A query ends before any lifecycle acknowledgements received while it is in flight.
+ * Apply those acknowledgements to the returned batch even if BlockActivity has since paused. */
+fun completeForegroundQuery(
+    previous: ForegroundState,
+    events: List<ActivityEvent>,
+    readTime: Long,
+    targets: Set<String>,
+    block: BlockWindow,
+    acknowledgedTargets: Set<String>,
+): ForegroundResult {
+    val result = reduceForeground(previous, events, readTime, targets, block)
+    return reduceForeground(result.state, emptyList(), readTime, acknowledgedTargets, BlockWindow(true, false))
+}

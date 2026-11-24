@@ -39,13 +39,24 @@ class ForegroundPolicyTest {
         assertEquals(targets, reduce(listOf(event(1, ActivityEventType.RESUMED)), BlockWindow(false, false)).packages)
     }
     @Test fun pictureInPicturePausedWindowIsNotForeground() {
-        assertTrue(reduce(listOf(event(1, ActivityEventType.RESUMED), event(2, ActivityEventType.PAUSED))).packages.isEmpty())
+        val events = listOf(event(1, ActivityEventType.RESUMED), event(2, ActivityEventType.PAUSED),
+            event(3, ActivityEventType.RESUMED, other), event(4, ActivityEventType.RESUMED, cadence))
+        // The paused PiP game is not foreground alongside a full-screen or split-screen activity.
+        for (window in listOf(BlockWindow(true, false), BlockWindow(true, true), BlockWindow(false, false))) {
+            assertEquals(setOf(other.packageName, cadence.packageName), reduce(events, window).packages)
+        }
     }
     @Test fun pauseAfter24HourBoundaryDoesNotInventResume() {
-        val boundary = 86_400_000L
+        val now = 2 * 86_400_000L
+        val boundary = usageQueryStart(now, bootTime = 0, previousRead = null)
+        assertEquals(86_400_000L, boundary)
         val events = listOf(event(boundary - 1, ActivityEventType.RESUMED), event(boundary + 1, ActivityEventType.PAUSED))
-        assertTrue(reduce(events.filter { it.time >= boundary }, now = boundary + 100).packages.isEmpty())
-        assertTrue(reduce(events, now = boundary + 100).packages.isEmpty())
+        val first = reduce(events.filter { it.time >= boundary }, now = now)
+        assertTrue(first.packages.isEmpty())
+        val nextRead = now + 1_000
+        val from = usageQueryStart(nextRead, bootTime = 0, previousRead = now)
+        val next = reduceForeground(first.state, events.filter { it.time >= from }, nextRead, targets, BlockWindow())
+        assertTrue(next.packages.isEmpty())
     }
     @Test fun longRunningResumedClassDoesNotExpireAt24Hours() {
         val first = reduce(listOf(event(1, ActivityEventType.RESUMED)))
@@ -91,4 +102,30 @@ class ForegroundPolicyTest {
         assertEquals(failed, updateLaunchStatus(failed, 5_000, false, false))
         assertEquals(LaunchStatus(), updateLaunchStatus(failed, 5_001, true, false))
     }
+    @Test fun cleanedResumeDoesNotReturnAfterScreenOffLongerThanOverlap() {
+        val resumed = event(9_000, ActivityEventType.RESUMED)
+        val lastRead = 10_000L
+        val initial = reduce(listOf(resumed), now = lastRead)
+        val cleaned = acknowledgeBlockWindow(initial.state, lastRead, targets, BlockWindow(true, false))
+        // Home, screen off, and screen on callbacks occur without another successful query.
+        val wakeTime = 40_000L
+        val atWake = acknowledgeBlockWindow(cleaned, lastRead, targets, BlockWindow(false, false))
+        val from = usageQueryStart(wakeTime, bootTime = 0, previousRead = lastRead)
+        assertTrue(resumed.time >= from)
+        val reread = reduceForeground(atWake, listOf(resumed).filter { it.time >= from }, wakeTime, targets, BlockWindow())
+        assertTrue(reread.packages.isEmpty())
+        val fresh = reduceForeground(reread.state, listOf(event(wakeTime + 1, ActivityEventType.RESUMED)), wakeTime + 2, targets, BlockWindow())
+        assertEquals(targets, fresh.packages)
+    }
+    @Test fun inFlightQueryKeepsFullscreenAcknowledgementAfterQuickHome() {
+        val result = completeForegroundQuery(ForegroundState(), listOf(event(1, ActivityEventType.RESUMED)),
+            100, targets, BlockWindow(false, false), acknowledgedTargets = targets)
+        assertTrue(result.packages.isEmpty())
+    }
+    @Test fun inFlightQueryDoesNotCleanSplitScreenTarget() {
+        val result = completeForegroundQuery(ForegroundState(), listOf(event(1, ActivityEventType.RESUMED)),
+            100, targets, BlockWindow(true, true), acknowledgedTargets = emptySet())
+        assertEquals(targets, result.packages)
+    }
+
 }

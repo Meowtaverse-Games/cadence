@@ -1,5 +1,7 @@
 package com.meowtaversegames.cadence
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.app.AlarmManager
 import android.app.AppOpsManager
 import android.app.NotificationManager
@@ -37,8 +39,15 @@ enum class PermissionKind(val label: String) {
 }
 
 object Permissions {
-    fun usage(context: Context): Boolean = context.getSystemService(AppOpsManager::class.java)
-        .unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
+    fun usage(context: Context): Boolean {
+        val mode = context.getSystemService(AppOpsManager::class.java)
+            .unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+        return when (mode) {
+            AppOpsManager.MODE_ALLOWED -> true
+            AppOpsManager.MODE_DEFAULT -> context.checkSelfPermission(Manifest.permission.PACKAGE_USAGE_STATS) == PackageManager.PERMISSION_GRANTED
+            else -> false
+        }
+    }
 
     fun exact(context: Context): Boolean = Build.VERSION.SDK_INT < 31 ||
         context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
@@ -66,7 +75,8 @@ object Permissions {
     fun protectedPackages(context: Context): Set<String> = buildSet {
         add(context.packageName)
         context.getSystemService(TelecomManager::class.java).defaultDialerPackage?.let(::add)
-        // Resolve the actual settings handler instead of assuming an OEM package name.
-        context.packageManager.resolveActivity(Intent(Settings.ACTION_SETTINGS), 0)?.activityInfo?.packageName?.let(::add)
+        // Include every system handler, even if resolveActivity would return the chooser.
+        context.packageManager.queryIntentActivities(Intent(Settings.ACTION_SETTINGS), PackageManager.MATCH_SYSTEM_ONLY)
+            .forEach { add(it.activityInfo.packageName) }
     }
 }

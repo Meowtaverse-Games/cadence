@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -17,8 +18,6 @@ import java.time.format.DateTimeFormatter
 
 internal fun clockText(time: Instant): String = DateTimeFormatter.ofPattern("HH:mm")
     .withZone(ZoneId.systemDefault()).format(time)
-
-enum class ReconcileSource { ALARM, SYSTEM_BROADCAST, VISIBLE_ACTIVITY, DATA_CHANGED, SERVICE }
 
 /** All entry points run on the process main thread; the service never recursively starts itself. */
 class BlockingRuntime private constructor(private val context: Context) {
@@ -38,6 +37,9 @@ class BlockingRuntime private constructor(private val context: Context) {
     var blockWindow by mutableStateOf(BlockWindow())
         private set
     var service: BlockingService? = null
+        private set
+    private var servicePhase = ServicePhase.STOPPED
+    private var lastPermissionCheck: Long? = null
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
     fun reconcile(source: ReconcileSource) {
@@ -55,41 +57,77 @@ class BlockingRuntime private constructor(private val context: Context) {
         }.orEmpty()
         val next = decideBlocking(now, intervals, targets)
         decision = next
-        var retry = false
-        if (!next.runService) {
-            context.stopService(Intent(context, BlockingService::class.java))
-            startFailed = false
-            updateLaunchFailure(false)
-            cancel(IMMEDIATE)
-            BlockingNotifications.cancel(context)
-        } else if (service != null) {
-            startFailed = false
-            cancel(IMMEDIATE)
-            service?.refreshNotification()
-        } else if (source == ReconcileSource.DATA_CHANGED) {
-            retry = true
-        } else if (source != ReconcileSource.SERVICE) {
-            try {
-                context.startForegroundService(Intent(context, BlockingService::class.java))
+        when (serviceAction(next.runService, source, servicePhase)) {
+            ServiceAction.STOP -> {
+                context.stopService(Intent(context, BlockingService::class.java))
                 startFailed = false
+                updateLaunchFailure(false)
                 cancel(IMMEDIATE)
-            } catch (error: RuntimeException) {
-                if (Build.VERSION.SDK_INT >= 31 && error is ForegroundServiceStartNotAllowedException) {
-                    startFailed = true
-                    store.log("service_start_denied")
-                    BlockingNotifications.show(context, this)
-                    retry = source != ReconcileSource.ALARM
-                } else throw error
+                BlockingNotifications.cancel(context)
+            }
+            ServiceAction.KEEP -> {
+                if (servicePhase == ServicePhase.RUNNING) {
+                    cancel(IMMEDIATE)
+                    service?.refreshNotification()
+                }
+            }
+            ServiceAction.IMMEDIATE_ALARM -> schedule(IMMEDIATE, now)
+            ServiceAction.START_DIRECTLY -> {
+                servicePhase = ServicePhase.START_REQUESTED
+                try {
+                    context.startForegroundService(Intent(context, BlockingService::class.java))
+                    cancel(IMMEDIATE)
+                } catch (error: RuntimeException) {
+                    servicePhase = ServicePhase.STOPPED
+                    if (Build.VERSION.SDK_INT >= 31 && error is ForegroundServiceStartNotAllowedException) {
+                        recordStartDenied()
+                        retryDeniedStart(source)
+                    } else throw error
+                }
             }
         }
         next.nextBoundary?.let { schedule(BOUNDARY, it) } ?: cancel(BOUNDARY)
-        // Separate identity from the single boundary alarm, so it cannot overwrite that alarm.
-        if (retry) schedule(IMMEDIATE, now)
     }
 
-    fun refreshPermissions() {
+    fun serviceCreated(created: BlockingService) {
+        service = created
+        servicePhase = ServicePhase.START_REQUESTED
+    }
+
+    fun servicePromoted() {
+        servicePhase = ServicePhase.RUNNING
+        startFailed = false
+    }
+
+    fun serviceDestroyed(destroyed: BlockingService) {
+        if (service === destroyed) {
+            service = null
+            // A retry may already have requested a replacement while this instance was stopping.
+            if (servicePhase != ServicePhase.START_REQUESTED) servicePhase = ServicePhase.STOPPED
+        }
+    }
+
+    fun recordStartDenied() {
+        servicePhase = ServicePhase.STOPPED
+        startFailed = true
+        store.log("service_start_denied")
+        BlockingNotifications.show(context, this)
+    }
+
+    fun retryDeniedStart(source: ReconcileSource) {
+        if (serviceAction(true, source, servicePhase, startDenied = true) == ServiceAction.IMMEDIATE_ALARM) {
+            // Separate from the single boundary alarm, which remains reserved.
+            schedule(IMMEDIATE, Instant.now())
+        }
+    }
+
+    fun refreshPermissions(force: Boolean = true) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && lastPermissionCheck?.let { now - it < 5_000 } == true) return
+        lastPermissionCheck = now
         val next = Permissions.read(context)
         if (permissionState != next) store.log("permissions $next")
+        if (permissionState.notifications != next.notifications) BlockingNotifications.foregroundRemoved()
         permissionState = next
     }
 

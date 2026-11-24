@@ -7,6 +7,7 @@ import com.meowtaversegames.cadence.core.TimetableParser
 import com.meowtaversegames.cadence.core.TimetableValue
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.Executors
 
 class LocalStore(context: Context) {
     private val directory = context.filesDir
@@ -60,13 +61,23 @@ class LocalStore(context: Context) {
 
     /** Only callers' fixed event names, permission flags and blocked package names are recorded. */
     fun log(event: String) {
+        val entry = "${Instant.now()} $event"
+        logWriter.execute { appendLog(entry) }
+    }
+
+    private fun appendLog(entry: String) {
         try {
             val file = File(directory, "blocking.log")
             val previous = if (file.exists()) file.readLines().takeLast(499) else emptyList()
-            write("blocking.log", (previous + "${Instant.now()} $event").joinToString("\n", postfix = "\n"))
+            write("blocking.log", (previous + entry).joinToString("\n", postfix = "\n"))
         } catch (_: Exception) {
             // Logging must never prevent enforcement. No external logging or crash payloads.
         }
+    }
+
+    companion object {
+        // Process-wide ordering, including across service restarts. Only this executor writes logs.
+        private val logWriter = Executors.newSingleThreadExecutor { task -> Thread(task, "cadence-log") }
     }
 }
 data class CachedTimetable(val timetable: Timetable?)

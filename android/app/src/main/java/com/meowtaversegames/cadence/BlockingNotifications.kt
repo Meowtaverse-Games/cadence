@@ -14,10 +14,11 @@ object BlockingNotifications {
     const val ID = 1
     private const val CHANNEL = "blocking"
 
-    fun build(context: Context, runtime: BlockingRuntime): Notification {
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL, "集中時間", NotificationManager.IMPORTANCE_LOW),
-        )
+    private var channelCreated = false
+    private var lastContent: Content? = null
+    private data class Content(val title: String, val warnings: String)
+
+    private fun content(runtime: BlockingRuntime): Content {
         val warnings = buildList {
             if (runtime.readFailed) add("設定を読み込めません")
             if (runtime.startFailed) add("ブロックを始められませんでした")
@@ -29,21 +30,43 @@ object BlockingNotifications {
         val end = runtime.decision?.end
         val title = if (runtime.startFailed) "ブロックを始められませんでした"
             else if (end != null) "集中の時間です · ${clockText(end)} まで" else "設定を読み込めません"
+        return Content(title, warnings)
+    }
+
+    fun build(context: Context, runtime: BlockingRuntime): Notification = build(context, content(runtime))
+
+    private fun build(context: Context, content: Content): Notification {
+        if (!channelCreated) {
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL, "集中時間", NotificationManager.IMPORTANCE_LOW),
+            )
+            channelCreated = true
+        }
         val settings = PendingIntent.getActivity(context, 0,
             Intent(context, SettingsActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(title).setContentText(warnings.ifEmpty { "タップして設定を開く" })
-            .setStyle(Notification.BigTextStyle().bigText(warnings))
+            .setContentTitle(content.title).setContentText(content.warnings.ifEmpty { "タップして設定を開く" })
+            .setStyle(Notification.BigTextStyle().bigText(content.warnings))
             .setContentIntent(settings).setOngoing(true).setOnlyAlertOnce(true).build()
     }
 
     fun show(context: Context, runtime: BlockingRuntime) {
+        val next = content(runtime)
+        if (next == lastContent || !runtime.permissionState.notifications) return
         if ((Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
-            context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
-            context.getSystemService(NotificationManager::class.java).notify(ID, build(context, runtime))
+            runtime.permissionState.notifications) {
+            context.getSystemService(NotificationManager::class.java).notify(ID, build(context, next))
+            lastContent = next
         }
     }
 
-    fun cancel(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(ID)
+    // startForeground always publishes; record its content to avoid an identical notify next tick.
+    fun foregroundPublished(runtime: BlockingRuntime) { lastContent = content(runtime) }
+    fun foregroundRemoved() { lastContent = null }
+
+    fun cancel(context: Context) {
+        context.getSystemService(NotificationManager::class.java).cancel(ID)
+        foregroundRemoved()
+    }
 }
