@@ -61,7 +61,8 @@ class LauncherRepository(context: Context, private val publish: (LauncherSnapsho
                     AppEntry(id, app.componentName.packageName, label, bucket,
                         if (group.labelType == AlphabeticIndex.Bucket.LabelType.NORMAL) group.label else "その他")
                 }
-                LauncherSnapshot(appSections(entries, Collator.getInstance(Locale.JAPANESE)), icons)
+                val collator = Collator.getInstance(Locale.JAPANESE)
+                LauncherSnapshot(appSections(entries, Comparator { a, b -> collator.compare(a, b) }), icons)
             } catch (_: RuntimeException) { LauncherSnapshot(failed = true) }
             handler.post { if (!closed && requested == generation) publish(snapshot) }
         }
