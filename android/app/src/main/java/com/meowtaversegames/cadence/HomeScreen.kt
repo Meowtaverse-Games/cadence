@@ -1,6 +1,8 @@
 package com.meowtaversegames.cadence
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -220,7 +222,7 @@ fun HomeScreen(
         val full = !isFavorite && favorites.size >= FAVORITE_LIMIT
         AlertDialog(onDismissRequest = { menu = null }, title = { Text(app.label) },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     TextButton(enabled = !full, onClick = {
                         onFavorites(if (isFavorite) removeFavorite(favorites, app.id) else addFavorite(favorites, app.id).ids)
                         menu = null

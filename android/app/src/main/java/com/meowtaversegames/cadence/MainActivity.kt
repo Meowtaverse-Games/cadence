@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
     private var favoritesFailed by mutableStateOf(false)
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private var error by mutableStateOf<String?>(null)
+    private var uninstallApp by mutableStateOf<AppEntry?>(null)
     private var homeRequest by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,9 +72,23 @@ class MainActivity : ComponentActivity() {
                     visibleSnapshot, favorites, runtime.targets, protectedPackages, runtime.readFailed,
                     homeRequest, ::launchApp, ::saveFavorites, ::toggleTarget,
                     { app -> open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}"))) },
-                    { app -> open(Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.packageName}"))) },
+                    { app -> uninstallApp = app },
                     { open(Intent(this, SettingsActivity::class.java)) },
                 )
+                uninstallApp?.let { app ->
+                    // Direct package deletion UI needs REQUEST_DELETE_PACKAGES. Keep the existing
+                    // permission surface and guide the user through the system's app-info screen.
+                    androidx.compose.material3.AlertDialog(onDismissRequest = { uninstallApp = null },
+                        title = { androidx.compose.material3.Text("アンインストール") },
+                        text = { androidx.compose.material3.Text("${app.label} のアプリ情報を開き、「アンインストール」を選んでください。システムのアプリなど、削除できないものもあります。") },
+                        confirmButton = { androidx.compose.material3.TextButton(onClick = {
+                            uninstallApp = null
+                            open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
+                        }) { androidx.compose.material3.Text("アプリ情報を開く") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { uninstallApp = null }) {
+                            androidx.compose.material3.Text("キャンセル")
+                        } })
+                }
                 error?.let { message ->
                     androidx.compose.material3.AlertDialog(onDismissRequest = { error = null },
                         text = { androidx.compose.material3.Text(message) },
@@ -98,6 +113,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        error = null
+        uninstallApp = null
         homeRequest++
     }
 
