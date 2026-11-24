@@ -440,6 +440,10 @@ Cadence の画面が前面にあるとき）からだけにする。それ以外
   たびに起動を試み続ける。警告は状態として1つだけ示し（試すたびに増やさない）、`BlockActivity` が前面に来たら消す。
 - 次は MVP の対象外とする: 別の利用者として動くアプリ（デュアルアプリやクローン、プライベートスペース、
   仕事用プロファイル。`queryEvents` に出ないため）と、ピクチャー・イン・ピクチャーで pause された窓。
+- 既知の制限: 全画面の上に浮く窓（端末メーカーのポップアップ表示、freeform、デスクトップ形式の窓）でブロック対象が
+  resumed のまま動いていると、`BlockActivity` は全画面（`isInMultiWindowMode()` が false）なので後片付けが働き、
+  対象が前面の判定から外れることがある。次に対象のイベントが来れば再びブロックする。MVP では対応せず、実機で
+  確かめてから扱いを決める。
 
 #### ブロック画面
 
@@ -598,8 +602,9 @@ debug ビルドだけ、Firebase なしでブロックを確かめるため「�
 | 4b | iOS の Firebase 連携（サインイン、時間割の読み書きと変更の受信、`Package.resolved`） | 4a、3a のルールと Firebase の準備 |
 | 5 | Codemagic の設定と TestFlight 配布 | 4b、entitlement の承認 |
 | A1 | Kotlin の `android/core`、Gradle のプロジェクト、Android の CI | 1 の共通テストケース |
-| A2 | Android のホームアプリとブロック（端末内のキャッシュの時間割と、debug ビルドの確認用の時間割で動かす） | A1 |
-| A3 | Android の Firebase 連携（サインイン、時間割の受信とキャッシュ）と、`docs/firebase-setup.md` への Android アプリの登録（package `com.meowtaversegames.cadence`）と `google-services.json` の置き場所の追記 | A2、3a のルールと Firebase の準備 |
+| A2a | Android のブロックの仕組み（照合、前面のアプリの検知、ブロック画面、権限、端末内の保存）と、仮のホーム画面・設定画面。端末内のキャッシュの時間割と、debug ビルドの確認用の時間割で動かす | A1 |
+| A2b | Android のホーム画面（お気に入り、すべてのアプリと索引・検索、ブロック中に隠すこと、長押しのメニュー、壁紙） | A2a |
+| A3 | Android の Firebase 連携（サインイン、時間割の受信とキャッシュ）と、`docs/firebase-setup.md` への Android アプリの登録（package `com.meowtaversegames.cadence`）と `google-services.json` の置き場所の追記 | A2a、3a のルールと Firebase の準備 |
 | A4 | Android の release の署名と配布の方法 | A3 |
 
 A4 で決めること: 配り方と更新の方法、Android の開発者確認（developer verification）が直接入れる配布に及ぶ範囲と
