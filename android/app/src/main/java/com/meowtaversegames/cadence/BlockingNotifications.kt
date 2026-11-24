@@ -53,7 +53,10 @@ object BlockingNotifications {
 
     fun show(context: Context, runtime: BlockingRuntime) {
         val next = content(runtime)
-        if (next == lastContent || !runtime.permissionState.notifications) return
+        if (!runtime.permissionState.notifications) return
+        // Android 14+ allows users to dismiss ongoing notifications. Republish on the next tick/reconcile.
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (next == lastContent && manager.activeNotifications.any { it.id == ID }) return
         if ((Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
             runtime.permissionState.notifications) {
             context.getSystemService(NotificationManager::class.java).notify(ID, build(context, next))

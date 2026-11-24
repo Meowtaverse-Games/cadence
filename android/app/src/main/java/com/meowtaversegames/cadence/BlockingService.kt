@@ -126,7 +126,11 @@ class BlockingService : Service() {
         val from = usageQueryStart(now, now - SystemClock.elapsedRealtime(), previousRead)
         val usage = getSystemService(UsageStatsManager::class.java)
         queries.execute {
-            val batch = try { readEvents(usage, from, now) } catch (_: SecurityException) { null }
+            val batch = try { readEvents(usage, from, now) } catch (_: RuntimeException) {
+                // Includes SecurityException. Never allow a platform query failure to kill the home process.
+                runtime.store.log("usage_query_failed")
+                null
+            }
             handler.post {
                 queryInFlight = false
                 if (destroyed || !active) return@post

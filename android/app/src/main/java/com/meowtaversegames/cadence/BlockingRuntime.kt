@@ -59,6 +59,7 @@ class BlockingRuntime private constructor(private val context: Context) {
         decision = next
         when (serviceAction(next.runService, source, servicePhase)) {
             ServiceAction.STOP -> {
+                servicePhase = ServicePhase.STOP_REQUESTED
                 context.stopService(Intent(context, BlockingService::class.java))
                 startFailed = false
                 updateLaunchFailure(false)

@@ -79,7 +79,7 @@ fun updateLaunchStatus(old: LaunchStatus, elapsed: Long, resumed: Boolean, shoul
 }
 
 enum class ReconcileSource { ALARM, SYSTEM_BROADCAST, VISIBLE_ACTIVITY, DATA_CHANGED, SERVICE }
-enum class ServicePhase { STOPPED, START_REQUESTED, RUNNING }
+enum class ServicePhase { STOPPED, START_REQUESTED, RUNNING, STOP_REQUESTED }
 enum class ServiceAction { START_DIRECTLY, IMMEDIATE_ALARM, KEEP, STOP }
 
 /** KEEP after an alarm denial means no immediate re-reservation; boundary scheduling is independent. */
@@ -95,7 +95,7 @@ fun serviceAction(
     !shouldRun -> ServiceAction.STOP
     phase == ServicePhase.RUNNING -> ServiceAction.KEEP
     source == ReconcileSource.DATA_CHANGED -> ServiceAction.IMMEDIATE_ALARM
-    source == ReconcileSource.SERVICE -> ServiceAction.KEEP
+    source == ReconcileSource.SERVICE && phase != ServicePhase.STOP_REQUESTED -> ServiceAction.KEEP
     else -> ServiceAction.START_DIRECTLY
 }
 

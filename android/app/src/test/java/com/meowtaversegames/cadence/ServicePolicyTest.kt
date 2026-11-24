@@ -46,4 +46,18 @@ class ServicePolicyTest {
         assertEquals(ServiceAction.IMMEDIATE_ALARM, serviceAction(true, ReconcileSource.SERVICE, ServicePhase.START_REQUESTED, startDenied = true))
         assertEquals(ServiceAction.KEEP, serviceAction(true, ReconcileSource.SERVICE, ServicePhase.STOPPED))
     }
+    @Test fun returningToFocusDuringStopRequestsAnotherStart() {
+        for (source in listOf(ReconcileSource.ALARM, ReconcileSource.SYSTEM_BROADCAST, ReconcileSource.VISIBLE_ACTIVITY, ReconcileSource.SERVICE)) {
+            assertEquals(ServiceAction.START_DIRECTLY, serviceAction(true, source, ServicePhase.STOP_REQUESTED))
+        }
+    }
+    @Test fun backgroundChangeDuringStopStillUsesAnAlarm() {
+        assertEquals(ServiceAction.IMMEDIATE_ALARM, serviceAction(true, ReconcileSource.DATA_CHANGED, ServicePhase.STOP_REQUESTED))
+    }
+    @Test fun freeTimeDuringStopKeepsStopping() {
+        for (source in ReconcileSource.entries) {
+            assertEquals(ServiceAction.STOP, serviceAction(false, source, ServicePhase.STOP_REQUESTED))
+        }
+    }
+
 }
