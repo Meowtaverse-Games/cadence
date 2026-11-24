@@ -26,6 +26,7 @@ class SettingsActivity : ComponentActivity() {
     private var apps by mutableStateOf<List<AppEntry>>(emptyList())
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private lateinit var repository: LauncherRepository
+    private var favoritesFailed by mutableStateOf(false)
     private var actionError by mutableStateOf<String?>(null)
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         runtime.refreshPermissions()
@@ -33,7 +34,7 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        repository = LauncherRepository(this) { snapshot ->
+        repository = LauncherRepository(this, loadIcons = false) { snapshot ->
             if (snapshot.failed) actionError = "アプリの一覧を読み込めませんでした"
             else apps = snapshot.apps
         }
@@ -55,6 +56,10 @@ class SettingsActivity : ComponentActivity() {
                         if (runtime.readFailed) Text("設定を読み込めません。保存済みの設定を確認してください")
                         if (runtime.startFailed) Text("ブロックを始められませんでした")
                         if (runtime.launchFailed) Text("ブロック画面を出せませんでした。重ねて表示と端末独自の背景表示の設定を確認してください")
+                        if (favoritesFailed) {
+                            Text("お気に入りを読み込めません")
+                            Text("保存済みのお気に入りのファイルを読み出せないため、空として表示しています。ブロックには影響しません。元のファイルを保護するため追加・並べ替えの保存は行いません。ホームへ戻ると再度読み込みます。")
+                        }
                         actionError?.let { Text(it) }
                     }
                     items(PermissionKind.entries) { kind ->
@@ -107,6 +112,7 @@ class SettingsActivity : ComponentActivity() {
         super.onResume()
         runtime.reconcile(ReconcileSource.VISIBLE_ACTIVITY)
         protectedPackages = Permissions.protectedPackages(this)
+        favoritesFailed = runtime.store.readFavorites().failed
         repository.refresh()
     }
 

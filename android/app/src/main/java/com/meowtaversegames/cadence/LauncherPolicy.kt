@@ -12,6 +12,7 @@ data class AppEntry(
     val label: String,
     val bucket: Int,
     val heading: String,
+    val canUninstall: Boolean = true,
 )
 data class AppSection(val bucket: Int, val heading: String, val apps: List<AppEntry>)
 data class FavoriteChange(val ids: List<String>, val limitReached: Boolean = false)
@@ -22,12 +23,31 @@ fun addFavorite(ids: List<String>, id: String): FavoriteChange = when {
     else -> FavoriteChange(ids + id)
 }
 fun removeFavorite(ids: List<String>, id: String): List<String> = ids.filterNot { it == id }
-fun moveFavorite(ids: List<String>, id: String, offset: Int): List<String> {
-    val from = ids.indexOf(id)
-    val to = from + offset
-    if (from < 0 || to !in ids.indices) return ids
-    return ids.toMutableList().apply { add(to, removeAt(from)) }
+/** null means no successful inventory yet; failed/empty reads must never erase saved IDs. */
+fun pruneFavorites(ids: List<String>, installedIds: Set<String>?, readFailed: Boolean): List<String> =
+    if (readFailed || installedIds.isNullOrEmpty()) ids else ids.filter { it in installedIds }
+
+fun installedFavoriteCount(ids: List<String>, installedIds: Set<String>?): Int =
+    if (installedIds == null) ids.size else ids.count { it in installedIds }
+
+fun canMoveFavorite(visibleIds: List<String>, id: String, direction: Int): Boolean {
+    val position = visibleIds.indexOf(id)
+    return direction in listOf(-1, 1) && position >= 0 && position + direction in visibleIds.indices
 }
+
+/** Swap visible neighbours in their saved slots; hidden favourites keep both their ID and slot. */
+fun moveVisibleFavorite(ids: List<String>, visibleIds: List<String>, id: String, direction: Int): List<String> {
+    val visible = visibleIds.filter { it in ids }
+    if (!canMoveFavorite(visible, id, direction)) return ids
+    val neighbour = visible[visible.indexOf(id) + direction]
+    val from = ids.indexOf(id)
+    val to = ids.indexOf(neighbour)
+    return ids.toMutableList().apply { this[from] = neighbour; this[to] = id }
+}
+
+fun restingAppCount(apps: List<AppEntry>, targets: Set<String>): Int =
+    apps.map { it.packageName }.toSet().intersect(targets).size
+
 fun visibleApps(apps: List<AppEntry>, targets: Set<String>, blocked: Boolean): List<AppEntry> =
     if (blocked) apps.filterNot { it.packageName in targets } else apps
 

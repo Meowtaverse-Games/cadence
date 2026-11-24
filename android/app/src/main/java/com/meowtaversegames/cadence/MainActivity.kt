@@ -6,7 +6,6 @@ import android.content.pm.LauncherApps
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -23,7 +22,8 @@ class MainActivity : ComponentActivity() {
     private var favoritesFailed by mutableStateOf(false)
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private var error by mutableStateOf<String?>(null)
-    private var uninstallApp by mutableStateOf<AppEntry?>(null)
+    private var drawer by mutableStateOf(false)
+    private var query by mutableStateOf("")
     private var homeRequest by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,9 +31,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         window.isNavigationBarContrastEnforced = false
+        drawer = savedInstanceState?.getBoolean("drawer") ?: false
+        query = savedInstanceState?.getString("query").orEmpty()
         repository = LauncherRepository(this) {
-            if (it.failed) error = "アプリの一覧を読み込めませんでした"
-            else snapshot = it
+            if (it.failed) {
+                snapshot = snapshot.copy(failed = true) // Retain the last successful inventory for counting.
+                error = "アプリの一覧を読み込めませんでした"
+            } else {
+                snapshot = it
+                pruneMissingFavorites()
+            }
         }
         setContent {
             CadenceTheme {
@@ -52,12 +59,10 @@ class MainActivity : ComponentActivity() {
                 }
                 val blocked = runtime.decision?.end != null
                 val warnings = buildList {
-                    if (runtime.permissionState.missing().isNotEmpty()) add("権限の設定が必要です")
-                    if (!runtime.permissionState.notifications) add("通知が出ません")
+                    runtime.permissionState.missing().forEach { add("${it.label}が必要です") }
                     if (runtime.startFailed) add("ブロックを始められませんでした")
                     if (runtime.launchFailed) add("ブロック画面を出せませんでした")
                     if (runtime.readFailed) add("設定を読み込めません")
-                    if (!runtime.readFailed && runtime.decision?.nextBoundary == null && !blocked) add("時間割がありません")
                     if (favoritesFailed) add("お気に入りを読み込めません")
                 }
                 val visibleSnapshot = remember(snapshot, runtime.targets, blocked) {
@@ -66,29 +71,19 @@ class MainActivity : ComponentActivity() {
                         if (visible.isEmpty()) null else section.copy(apps = visible)
                     })
                 }
+                val restingCount = restingAppCount(snapshot.apps, runtime.targets)
                 HomeScreen(
                     HomePresentation(now, runtime.statusText(), warnings,
-                        runtime.decision?.end?.let { "${runtime.targets.size} 個のアプリを ${clockText(it)} まで休ませています" }),
-                    visibleSnapshot, favorites, runtime.targets, protectedPackages, runtime.readFailed,
-                    homeRequest, ::launchApp, ::saveFavorites, ::toggleTarget,
-                    { app -> open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}"))) },
-                    { app -> uninstallApp = app },
+                        runtime.decision?.end?.takeIf { restingCount > 0 }?.let {
+                            "$restingCount 個のアプリを ${clockText(it)} まで休ませています"
+                        }, notificationsMissing = !runtime.permissionState.notifications),
+                    visibleSnapshot, favorites, snapshot.installedIds, snapshot.failed,
+                    runtime.targets, protectedPackages, runtime.readFailed,
+                    homeRequest, ::launchApp, ::saveFavorites, ::toggleTarget, ::showAppInfo,
+                    { app -> open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.packageName, null))) },
                     { open(Intent(this, SettingsActivity::class.java)) },
+                    drawer, query, { drawer = it }, { query = it },
                 )
-                uninstallApp?.let { app ->
-                    // Direct package deletion UI needs REQUEST_DELETE_PACKAGES. Keep the existing
-                    // permission surface and guide the user through the system's app-info screen.
-                    androidx.compose.material3.AlertDialog(onDismissRequest = { uninstallApp = null },
-                        title = { androidx.compose.material3.Text("アンインストール") },
-                        text = { androidx.compose.material3.Text("${app.label} のアプリ情報を開き、「アンインストール」を選んでください。システムのアプリなど、削除できないものもあります。") },
-                        confirmButton = { androidx.compose.material3.TextButton(onClick = {
-                            uninstallApp = null
-                            open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
-                        }) { androidx.compose.material3.Text("アプリ情報を開く") } },
-                        dismissButton = { androidx.compose.material3.TextButton(onClick = { uninstallApp = null }) {
-                            androidx.compose.material3.Text("キャンセル")
-                        } })
-                }
                 error?.let { message ->
                     androidx.compose.material3.AlertDialog(onDismissRequest = { error = null },
                         text = { androidx.compose.material3.Text(message) },
@@ -107,6 +102,7 @@ class MainActivity : ComponentActivity() {
         val stored = runtime.store.readFavorites()
         favorites = stored.value.orEmpty()
         favoritesFailed = stored.failed
+        // The repository verifies metadata on resume before pruning from a fresh inventory.
         repository.refresh()
     }
 
@@ -114,8 +110,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         error = null
-        uninstallApp = null
+        drawer = false
+        query = ""
         homeRequest++
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("drawer", drawer)
+        outState.putString("query", query)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
@@ -133,10 +136,17 @@ class MainActivity : ComponentActivity() {
         } catch (_: RuntimeException) { error = "アプリを開けませんでした" }
     }
 
+    private fun pruneMissingFavorites() {
+        if (favoritesFailed) return
+        val next = pruneFavorites(favorites, snapshot.installedIds, snapshot.failed)
+        if (next != favorites) saveFavorites(next)
+    }
+
     private fun saveFavorites(ids: List<String>) {
         try {
-            runtime.store.saveFavorites(ids)
-            favorites = ids
+            val next = pruneFavorites(ids, snapshot.installedIds, snapshot.failed)
+            runtime.store.saveFavorites(next)
+            favorites = next
             favoritesFailed = false
         } catch (_: Exception) {
             error = "お気に入りを保存できませんでした。読み込めないファイルは保護されています"
@@ -150,6 +160,13 @@ class MainActivity : ComponentActivity() {
             runtime.store.saveTargets(next)
             runtime.changed()
         } catch (_: Exception) { error = "設定を保存できませんでした" }
+    }
+
+    private fun showAppInfo(app: AppEntry) {
+        try {
+            getSystemService(LauncherApps::class.java).startAppDetailsActivity(
+                requireNotNull(ComponentName.unflattenFromString(app.id)), Process.myUserHandle(), null, null)
+        } catch (_: RuntimeException) { error = "アプリ情報を開けませんでした" }
     }
 
     private fun open(intent: Intent) {

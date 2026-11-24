@@ -121,3 +121,10 @@ fun completeForegroundQuery(
     val result = reduceForeground(previous, events, readTime, targets, block)
     return reduceForeground(result.state, emptyList(), readTime, acknowledgedTargets, BlockWindow(true, false))
 }
+
+/** A stopping/stopped service must not resurrect its notification after STOP cancelled it. */
+fun shouldShowBlockingNotification(startFailed: Boolean, phase: ServicePhase, end: Instant?, now: Instant): Boolean =
+    startFailed || (phase == ServicePhase.RUNNING && end != null && now < end)
+
+fun notificationCheckDue(lastCheck: Long?, elapsed: Long): Boolean =
+    lastCheck == null || elapsed - lastCheck >= 5_000
