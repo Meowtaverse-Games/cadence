@@ -62,14 +62,24 @@ class LauncherPolicyTest {
     @Test fun unavailableFavoriteDoesNotAffectDisplayOrMovementAndReturnsInSavedSlot() {
         val ids = listOf("a", "missing", "b")
         val inventory = listOf(app("a"), app("b"))
-        val visible = ids.mapNotNull { id -> inventory.find { it.id == id } }.map { it.id }
+        val visible = visibleFavorites(ids, inventory).map { it.id }
         assertEquals(listOf("a", "b"), visible)
         assertEquals(2, installedFavoriteCount(ids, inventory.map { it.id }.toSet()))
         val moved = moveVisibleFavorite(ids, visible, "a", 1)
         assertEquals(listOf("b", "missing", "a"), moved)
         assertFalse(canMoveFavorite(visible, "b", 1))
         val restored = inventory + app("missing")
-        assertEquals(moved, moved.mapNotNull { id -> restored.find { it.id == id } }.map { it.id })
+        assertEquals(moved, visibleFavorites(moved, restored).map { it.id })
+    }
+    @Test fun returningAppsKeepSavedIdsButHomeShowsAtMostEight() {
+        val ids = (1..8).map { "app$it" }
+        val available = (ids - "app1" + "new").map { app(it) }
+        val saved = addFavorite(ids, "new", available.map { it.id }.toSet()).ids
+        assertEquals(ids + "new", saved)
+        assertEquals(ids - "app1" + "new", visibleFavorites(saved, available).map { it.id })
+        assertEquals(ids, visibleFavorites(saved, available + app("app1")).map { it.id })
+        assertEquals(ids + "new", saved)
+        assertEquals(ids - "app1" + "new", visibleFavorites(removeFavorite(saved, "app1"), available).map { it.id })
     }
     @Test fun emptyInventoryDoesNotPreventAddingWithoutDeletingDormantIds() {
         val ids = (1..8).map { "app$it" }

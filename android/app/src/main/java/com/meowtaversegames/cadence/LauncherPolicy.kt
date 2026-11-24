@@ -41,6 +41,12 @@ fun consumesHomeBack(drawer: Boolean, defaultHome: Boolean): Boolean = drawer ||
 fun installedFavoriteCount(ids: List<String>, installedIds: Set<String>?): Int =
     if (installedIds == null) ids.size else ids.count { it in installedIds }
 
+/** Filter before limiting: dormant IDs never occupy a visible slot. Restored overflow stays saved. */
+fun visibleFavorites(ids: List<String>, apps: List<AppEntry>): List<AppEntry> {
+    val byId = apps.associateBy { it.id }
+    return ids.mapNotNull { byId[it] }.take(FAVORITE_LIMIT)
+}
+
 fun canMoveFavorite(visibleIds: List<String>, id: String, direction: Int): Boolean {
     val position = visibleIds.indexOf(id)
     return direction in listOf(-1, 1) && position >= 0 && position + direction in visibleIds.indices

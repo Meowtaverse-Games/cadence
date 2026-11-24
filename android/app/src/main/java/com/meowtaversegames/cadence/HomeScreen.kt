@@ -101,7 +101,7 @@ fun HomeScreen(
     BackHandler(enabled = consumesHomeBack(drawer, defaultHome)) { if (drawer) closeDrawer() }
     val apps = snapshot.apps
     LaunchedEffect(apps) { if (menu?.id !in apps.map { it.id }) menu = null }
-    val favoriteApps = favorites.mapNotNull { id -> apps.find { it.id == id } }
+    val favoriteApps = visibleFavorites(favorites, apps)
     val visibleFavoriteIds = favoriteApps.map { it.id }
     val onOpenDrawer by rememberUpdatedState { onDrawerChange(true) }
     val onCloseDrawer by rememberUpdatedState { closeDrawer() }
