@@ -4,8 +4,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $executable = (Resolve-Path (Join-Path $Path 'Cadence.Tray.exe')).Path
-$stdout = Join-Path $env:RUNNER_TEMP "cadence-smoke-$([guid]::NewGuid()).stdout"
-$stderr = Join-Path $env:RUNNER_TEMP "cadence-smoke-$([guid]::NewGuid()).stderr"
+$temporaryDirectory = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+$stdout = Join-Path $temporaryDirectory "cadence-smoke-$([guid]::NewGuid()).stdout"
+$stderr = Join-Path $temporaryDirectory "cadence-smoke-$([guid]::NewGuid()).stderr"
 try {
     $process = Start-Process -FilePath $executable -ArgumentList @('--cadence-ci-packaged-smoke-test', $ExpectedVersion) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     if (!$process.WaitForExit(60000)) {

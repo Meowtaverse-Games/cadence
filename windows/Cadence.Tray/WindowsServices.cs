@@ -53,16 +53,33 @@ internal static class StartupRegistration
         else key.DeleteValue("Cadence", throwOnMissingValue: false);
     }
 
-    public static void Install() => Hook(() => Set(true));
-    public static void Update() => Hook(() => { if (Enabled()) Set(true); });
-    public static void Uninstall() => Hook(() => Set(false));
-    private static void Hook(Action action)
+    public static void Install() => Hook("install_startup_failed", () => Set(true));
+    public static void Update() => Hook("update_startup_failed", Repair);
+    public static void RepairOnStartup() => Hook("startup_repair_failed", Repair);
+    public static void Uninstall() => Hook("uninstall_startup_failed", () => Set(false));
+
+    private static void Repair()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(Key, writable: true);
+        if (key?.GetValue("Cadence") is not string currentValue) return;
+        var locator = VelopackLocator.Current;
+        var installed = locator.CurrentlyInstalledVersion is not null && !locator.IsPortable;
+        var executable = StartupCommand.Executable(Environment.ProcessPath!,
+            installed, locator.IsPortable, locator.RootAppDir, locator.AppId);
+        var replacement = StartupCommand.RepairValue(currentValue,
+            File.Exists(StartupCommand.RegisteredExecutable(currentValue)), installed, executable);
+        if (replacement is null) return;
+        if (!File.Exists(executable)) throw new FileNotFoundException("Startup executable is missing.");
+        key.SetValue("Cadence", replacement);
+    }
+
+    private static void Hook(string failureKey, Action action)
     {
         try { action(); }
         catch (Exception error)
         {
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Cadence", "logs");
-            new DailyLog(directory, TimeProvider.System).Write("update_startup_failed " + UpdateFailure.Describe(error));
+            new DailyLog(directory, TimeProvider.System).Write(failureKey + " " + UpdateFailure.Describe(error));
         }
     }
 }
