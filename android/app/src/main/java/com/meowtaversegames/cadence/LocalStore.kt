@@ -35,6 +35,33 @@ class LocalStore(context: Context) {
         TimetableValue.ArrayValue(packages.sorted().map { TimetableValue.StringValue(it) }),
     ))
 
+    /** An unreadable file is never treated as a missing file when saving. */
+    @Synchronized
+    fun readFavorites(): ReadValue<List<String>> = try {
+        val text = read("favorites.json")
+        val ids = if (text == null) emptyList() else {
+            val array = TimetableJson.decode(text) as TimetableValue.ArrayValue
+            array.values.map { (it as TimetableValue.StringValue).value.also { id ->
+                require(id.isNotBlank() && '/' in id && id.none(Char::isWhitespace))
+            } }.also { require(it.distinct().size == it.size) }
+        }
+        ReadValue(ids, false)
+    } catch (_: Exception) {
+        log("favorites_read_failed")
+        ReadValue(emptyList(), true)
+    }
+
+    // Unavailable saved IDs do not consume installed slots and may exceed the visible limit.
+    @Synchronized
+    fun saveFavorites(ids: List<String>) {
+        check(!readFavorites().failed) { "Unreadable favorites must be preserved" }
+        require(ids.distinct().size == ids.size)
+        require(ids.all { it.isNotBlank() && '/' in it && it.none(Char::isWhitespace) })
+        write("favorites.json", TimetableJson.encode(
+            TimetableValue.ArrayValue(ids.map { TimetableValue.StringValue(it) }),
+        ))
+    }
+
     fun saveTimetable(value: TimetableValue) {
         require(TimetableParser.parse(value).valid)
         write("timetable.json", TimetableJson.encode(value))

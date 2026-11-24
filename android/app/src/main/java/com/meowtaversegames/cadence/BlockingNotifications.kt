@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 
 object BlockingNotifications {
     const val ID = 1
@@ -16,6 +17,9 @@ object BlockingNotifications {
 
     private var channelCreated = false
     private var lastContent: Content? = null
+    private var lastCheckedContent: Content? = null
+    private var lastPresenceCheck: Long? = null
+    private var channelEnabled = true
     private data class Content(val title: String, val warnings: String)
 
     private fun content(runtime: BlockingRuntime): Content {
@@ -52,18 +56,39 @@ object BlockingNotifications {
     }
 
     fun show(context: Context, runtime: BlockingRuntime) {
+        if (!runtime.shouldShowNotification || !runtime.permissionState.notifications) return
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val next = content(runtime)
-        if (next == lastContent || !runtime.permissionState.notifications) return
-        if ((Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
-            runtime.permissionState.notifications) {
-            context.getSystemService(NotificationManager::class.java).notify(ID, build(context, next))
+        val now = SystemClock.elapsedRealtime()
+        val due = notificationCheckDue(lastPresenceCheck, now)
+        if (!due && next == lastCheckedContent) return
+        lastCheckedContent = next
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (due) {
+            lastPresenceCheck = now
+            channelEnabled = manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        }
+        // Remember a disabled channel, including when content changes, until the next periodic check.
+        if (!channelEnabled) return
+        if (next != lastContent || (due && manager.activeNotifications.none { it.id == ID })) {
+            manager.notify(ID, build(context, next))
             lastContent = next
         }
     }
 
-    // startForeground always publishes; record its content to avoid an identical notify next tick.
-    fun foregroundPublished(runtime: BlockingRuntime) { lastContent = content(runtime) }
-    fun foregroundRemoved() { lastContent = null }
+    // startForeground always publishes; the first presence/channel check is five seconds later.
+    fun foregroundPublished(runtime: BlockingRuntime) {
+        lastContent = content(runtime)
+        lastCheckedContent = lastContent
+        lastPresenceCheck = SystemClock.elapsedRealtime()
+        channelEnabled = true
+    }
+    fun foregroundRemoved() {
+        lastContent = null
+        lastCheckedContent = null
+        lastPresenceCheck = null
+        channelEnabled = true
+    }
 
     fun cancel(context: Context) {
         context.getSystemService(NotificationManager::class.java).cancel(ID)

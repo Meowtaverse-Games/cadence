@@ -39,6 +39,9 @@ class BlockingRuntime private constructor(private val context: Context) {
     var service: BlockingService? = null
         private set
     private var servicePhase = ServicePhase.STOPPED
+    val serviceRunning: Boolean get() = servicePhase == ServicePhase.RUNNING
+    val shouldShowNotification: Boolean get() = shouldShowBlockingNotification(
+        startFailed, servicePhase, decision?.end, Instant.now())
     private var lastPermissionCheck: Long? = null
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
@@ -59,6 +62,7 @@ class BlockingRuntime private constructor(private val context: Context) {
         decision = next
         when (serviceAction(next.runService, source, servicePhase)) {
             ServiceAction.STOP -> {
+                servicePhase = ServicePhase.STOP_REQUESTED
                 context.stopService(Intent(context, BlockingService::class.java))
                 startFailed = false
                 updateLaunchFailure(false)

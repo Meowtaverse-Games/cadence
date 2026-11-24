@@ -33,6 +33,7 @@ class BlockingService : Service() {
     private var launch = LaunchStatus()
     private var hadUsage = false
     private var unknownLogged = false
+    private var queryFailed = false
     private var lastBlocked = emptySet<String>()
     private val tick = object : Runnable {
         override fun run() {
@@ -41,6 +42,8 @@ class BlockingService : Service() {
             if (runtime.decision?.nextBoundary?.let { now >= it } == true) {
                 runtime.reconcile(ReconcileSource.SERVICE)
             }
+            // reconcile may have requested STOP and removed the notification in this very tick.
+            if (!runtime.serviceRunning) return
             runtime.refreshPermissions(force = false)
             if (runtime.permissionState.usage != hadUsage) {
                 foreground = ForegroundState()
@@ -101,7 +104,9 @@ class BlockingService : Service() {
         return START_STICKY
     }
 
-    fun refreshNotification() = BlockingNotifications.show(this, runtime)
+    fun refreshNotification() {
+        if (runtime.shouldShowNotification) BlockingNotifications.show(this, runtime)
+    }
 
     fun windowChanged() {
         // Use the last completed read, not wall time: after screen-off the next query
@@ -126,10 +131,16 @@ class BlockingService : Service() {
         val from = usageQueryStart(now, now - SystemClock.elapsedRealtime(), previousRead)
         val usage = getSystemService(UsageStatsManager::class.java)
         queries.execute {
-            val batch = try { readEvents(usage, from, now) } catch (_: SecurityException) { null }
+            val batch = try { readEvents(usage, from, now) } catch (_: RuntimeException) {
+                // Includes SecurityException. Never allow a platform query failure to kill the home process.
+                null
+            }
             handler.post {
                 queryInFlight = false
                 if (destroyed || !active) return@post
+                val failed = batch == null
+                if (failed && !queryFailed) runtime.store.log("usage_query_failed")
+                queryFailed = failed
                 if (batch == null) {
                     runtime.refreshPermissions(force = false)
                     return@post
