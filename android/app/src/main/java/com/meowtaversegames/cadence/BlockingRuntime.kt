@@ -59,7 +59,7 @@ class BlockingRuntime private constructor(private val context: Context) {
         if (!next.runService) {
             context.stopService(Intent(context, BlockingService::class.java))
             startFailed = false
-            setLaunchFailed(false)
+            updateLaunchFailure(false)
             cancel(IMMEDIATE)
             BlockingNotifications.cancel(context)
         } else if (service != null) {
@@ -95,11 +95,11 @@ class BlockingRuntime private constructor(private val context: Context) {
 
     fun windowChanged(window: BlockWindow) {
         blockWindow = window
-        if (window.resumed) setLaunchFailed(false)
+        if (window.resumed) updateLaunchFailure(false)
         service?.windowChanged()
     }
 
-    fun setLaunchFailed(failed: Boolean) {
+    fun updateLaunchFailure(failed: Boolean) {
         if (launchFailed != failed) {
             launchFailed = failed
             if (failed) store.log("block_launch_failed")

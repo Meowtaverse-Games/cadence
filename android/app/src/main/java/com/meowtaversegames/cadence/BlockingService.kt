@@ -80,7 +80,7 @@ class BlockingService : Service() {
         foreground = reduceForeground(foreground, emptyList(), System.currentTimeMillis(),
             runtime.targets, runtime.blockWindow).state
         launch = updateLaunchStatus(launch, SystemClock.elapsedRealtime(), runtime.blockWindow.resumed, false)
-        runtime.setLaunchFailed(launch.failed)
+        runtime.updateLaunchFailure(launch.failed)
         handler.removeCallbacks(tick)
         handler.post(tick)
     }
@@ -116,7 +116,7 @@ class BlockingService : Service() {
         val blocked = result.packages.intersect(runtime.targets)
         val shouldLaunch = blocked.isNotEmpty() && !runtime.blockWindow.resumed
         launch = updateLaunchStatus(launch, SystemClock.elapsedRealtime(), runtime.blockWindow.resumed, shouldLaunch)
-        runtime.setLaunchFailed(launch.failed)
+        runtime.updateLaunchFailure(launch.failed)
         if (shouldLaunch) {
             runtime.store.log("block_launch packages=${blocked.sorted().joinToString(",")}")
             try {

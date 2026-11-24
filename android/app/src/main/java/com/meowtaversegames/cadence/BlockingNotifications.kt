@@ -1,11 +1,14 @@
 package com.meowtaversegames.cadence
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 
 object BlockingNotifications {
     const val ID = 1
@@ -36,7 +39,8 @@ object BlockingNotifications {
     }
 
     fun show(context: Context, runtime: BlockingRuntime) {
-        if (context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
+        if ((Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
             context.getSystemService(NotificationManager::class.java).notify(ID, build(context, runtime))
         }
     }
