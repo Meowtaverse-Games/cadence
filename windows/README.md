@@ -110,8 +110,8 @@ JSON の不正は取得できる場合に行とバイト位置（どちらも1�
   更新時の `INVALID_REFRESH_TOKEN` / `TOKEN_EXPIRED` / `USER_DISABLED` / `USER_NOT_FOUND` だけが
   再サインインの対象。それ以外の認証設定・通信の失敗でもセッションとキャッシュは保持する。
 - 「Windows のログオン時に起動する」は現在のユーザーの Run レジストリに登録する。
-  Setup.exe 版はインストール先直下の `Cadence.Tray.exe` を使い、`current` 内の exe は登録しない。
-  インストール時に有効化、更新時は有効な登録だけ修正し、アンインストール時に削除する。
+  Setup.exe 版はインストール先直下の `Cadence.exe`（Velopack の stub）を使い、`current` 内の exe は登録しない。
+  インストール時に有効化、更新後と通常起動時は有効な登録だけ修正し、アンインストール時に削除する。
   手動配置版の exe を移動した場合は新しい場所でオフ → オンにする。無効にするにはチェックを外す。
 - 終了はトレイの「終了」。終了中・PC のスリープ中にはプロセスを監視できない。
 
@@ -145,6 +145,7 @@ SDK 由来の publish ツールも lock に含むため、SDK 更新時は `glob
 Velopack の NuGet パッケージと `.config/dotnet-tools.json` の vpk は同じ版に固定する。
 CI は build / test / publish / vpk pack を行い、テスト結果 `windows-test-results` と確認用 exe を
 14日間保存する。Windows 実機での通知、DPAPI、プロセス終了、自動起動は別途確認する。
+CI 専用の `Cadence.Tray.exe --cadence-ci-packaged-smoke-test <期待する版>` は、一時フォルダの合成データで配布版の依存読み込みと版を検証し、画面や利用者データに触れず終了する（成功0、失敗1）。
 
 ### Windows のリリース
 

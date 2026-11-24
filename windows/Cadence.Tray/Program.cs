@@ -5,8 +5,12 @@ namespace Cadence.Tray;
 internal static class Program
 {
     [STAThread]
-    private static void Main(string[] args)
+    private static int Main(string[] args)
     {
+        // Run before Velopack, user data, registry access and any UI initialization.
+        if (args.Length == 2 && args[0] == "--cadence-ci-packaged-smoke-test")
+            return PackagedSmokeTest.Run(args[1]);
+
         VelopackApp.Build()
             .SetAutoApplyOnStartup(false)
             .OnAfterInstallFastCallback(_ => StartupRegistration.Install())
@@ -17,16 +21,18 @@ internal static class Program
         {
             ApplicationConfiguration.Initialize();
             DesignPreview.Generate(args[1]);
-            return;
+            return 0;
         }
         using var mutex = new Mutex(true, @"Local\Cadence.Tray", out var created);
-        if (!created) return;
+        if (!created) return 0;
         try
         {
+            StartupRegistration.Update();
             ApplicationConfiguration.Initialize();
             using var context = new TrayContext(TimeProvider.System);
             Application.Run(context);
         }
         finally { mutex.ReleaseMutex(); }
+        return 0;
     }
 }
