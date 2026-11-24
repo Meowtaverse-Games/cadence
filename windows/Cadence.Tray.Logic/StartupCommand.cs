@@ -14,4 +14,19 @@ public static class StartupCommand
     }
 
     public static string RegistryValue(string executable) => "\"" + executable + "\"";
+
+    public static string? RegisteredExecutable(string? registryValue) => registryValue?.Trim().Trim('"');
+
+    public static string? RepairValue(string? currentValue, bool currentExecutableExists,
+        bool installed, string executable)
+    {
+        if (currentValue is null) return null; // An absent value means startup is disabled.
+        var currentExecutable = RegisteredExecutable(currentValue);
+        // A manual build must not replace a working Setup.exe launcher.
+        if (!installed && currentExecutableExists &&
+            string.Equals(Path.GetFileName(currentExecutable), "Cadence.exe", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (string.Equals(currentExecutable, executable, StringComparison.OrdinalIgnoreCase)) return null;
+        return RegistryValue(executable);
+    }
 }
