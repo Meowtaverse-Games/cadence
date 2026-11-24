@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
                     if (runtime.startFailed) add("ブロックを始められませんでした")
                     if (runtime.launchFailed) add("ブロック画面を出せませんでした")
                     if (runtime.readFailed) add("設定を読み込めません")
-                    if (runtime.decision?.nextBoundary == null && !blocked) add("時間割がありません")
+                    if (!runtime.readFailed && runtime.decision?.nextBoundary == null && !blocked) add("時間割がありません")
                     if (favoritesFailed) add("お気に入りを読み込めません")
                 }
                 val visibleSnapshot = remember(snapshot, runtime.targets, blocked) {
