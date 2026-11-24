@@ -33,13 +33,12 @@ class MainActivity : ComponentActivity() {
         window.isNavigationBarContrastEnforced = false
         drawer = savedInstanceState?.getBoolean("drawer") ?: false
         query = savedInstanceState?.getString("query").orEmpty()
-        repository = LauncherRepository(this) {
+        repository = LauncherRepository(this, onPackageRemoved = ::removePackageFavorites) {
             if (it.failed) {
                 snapshot = snapshot.copy(failed = true) // Retain the last successful inventory for counting.
                 error = "アプリの一覧を読み込めませんでした"
             } else {
                 snapshot = it
-                pruneMissingFavorites()
             }
         }
         setContent {
@@ -83,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     { app -> open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.packageName, null))) },
                     { open(Intent(this, SettingsActivity::class.java)) },
                     drawer, query, { drawer = it }, { query = it },
+                    defaultHome = runtime.permissionState.home,
                 )
                 error?.let { message ->
                     androidx.compose.material3.AlertDialog(onDismissRequest = { error = null },
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
         val stored = runtime.store.readFavorites()
         favorites = stored.value.orEmpty()
         favoritesFailed = stored.failed
-        // The repository verifies metadata on resume before pruning from a fresh inventory.
+        // Check metadata without discarding temporarily unavailable favorites.
         repository.refresh()
     }
 
@@ -136,17 +136,19 @@ class MainActivity : ComponentActivity() {
         } catch (_: RuntimeException) { error = "アプリを開けませんでした" }
     }
 
-    private fun pruneMissingFavorites() {
-        if (favoritesFailed) return
-        val next = pruneFavorites(favorites, snapshot.installedIds, snapshot.failed)
-        if (next != favorites) saveFavorites(next)
+    private fun removePackageFavorites(packageName: String) {
+        // Read the file afresh: a callback can arrive while this activity is stopped.
+        val stored = runtime.store.readFavorites()
+        if (stored.failed) return
+        val ids = stored.value.orEmpty()
+        val next = removePackageFavorites(ids, packageName)
+        if (next != ids) saveFavorites(next)
     }
 
     private fun saveFavorites(ids: List<String>) {
         try {
-            val next = pruneFavorites(ids, snapshot.installedIds, snapshot.failed)
-            runtime.store.saveFavorites(next)
-            favorites = next
+            runtime.store.saveFavorites(ids)
+            favorites = ids
             favoritesFailed = false
         } catch (_: Exception) {
             error = "お気に入りを保存できませんでした。読み込めないファイルは保護されています"

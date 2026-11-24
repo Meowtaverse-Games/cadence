@@ -91,13 +91,14 @@ fun HomeScreen(
     query: String,
     onDrawerChange: (Boolean) -> Unit,
     onQueryChange: (String) -> Unit,
+    defaultHome: Boolean = true,
 ) {
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
     val focus = LocalFocusManager.current
     fun closeDrawer() { onDrawerChange(false); onQueryChange(""); menu = null; focus.clearFocus() }
     // Activity resets drawer/query synchronously on HOME; this effect only dismisses the keyboard.
     LaunchedEffect(homeRequest) { focus.clearFocus() }
-    BackHandler { if (drawer) closeDrawer() } // Never finish the home activity on Back.
+    BackHandler(enabled = consumesHomeBack(drawer, defaultHome)) { if (drawer) closeDrawer() }
     val apps = snapshot.apps
     LaunchedEffect(apps) { if (menu?.id !in apps.map { it.id }) menu = null }
     val favoriteApps = favorites.mapNotNull { id -> apps.find { it.id == id } }
@@ -254,12 +255,11 @@ fun HomeScreen(
         val isFavorite = app.id in favorites
         val full = !isFavorite && installedFavoriteCount(favorites, installedIds) >= FAVORITE_LIMIT
         val inventoryReady = installedIds != null && !inventoryFailed
-        val savedFavorites = pruneFavorites(favorites, installedIds, inventoryFailed)
         AlertDialog(onDismissRequest = { menu = null }, title = { Text(app.label) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     TextButton(enabled = !full && (isFavorite || inventoryReady), onClick = {
-                        onFavorites(if (isFavorite) removeFavorite(favorites, app.id) else addFavorite(savedFavorites, app.id).ids)
+                        onFavorites(if (isFavorite) removeFavorite(favorites, app.id) else addFavorite(favorites, app.id, installedIds).ids)
                         menu = null
                     }) { Text(if (isFavorite) "お気に入りから外す" else if (full) "お気に入りは8個までです" else if (!inventoryReady) "一覧の読み込み後に追加できます" else "お気に入りに追加") }
                     if (isFavorite) {

@@ -13,6 +13,7 @@ import android.os.UserHandle
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import java.io.File
 import java.text.Collator
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -23,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class LauncherRepository(
     context: Context,
     private val loadIcons: Boolean = true,
+    private val onPackageRemoved: (String) -> Unit = {},
     private val publish: (LauncherSnapshot) -> Unit,
 ) : AutoCloseable {
     private val launcher = context.getSystemService(LauncherApps::class.java)
@@ -41,7 +43,11 @@ class LauncherRepository(
     private var previousSnapshot: LauncherSnapshot? = null
     private val callback = object : LauncherApps.Callback() {
         override fun onPackageAdded(packageName: String, user: UserHandle) = changed(user)
-        override fun onPackageRemoved(packageName: String, user: UserHandle) = changed(user)
+        override fun onPackageRemoved(packageName: String, user: UserHandle) {
+            // LauncherApps sends onPackageChanged instead for replacement updates.
+            if (!closed && user == this@LauncherRepository.user) this@LauncherRepository.onPackageRemoved(packageName)
+            changed(user)
+        }
         override fun onPackageChanged(packageName: String, user: UserHandle) = changed(user)
         override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = changed(user)
         override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = changed(user)
@@ -67,19 +73,20 @@ class LauncherRepository(
             if (closed || requested != generation.get()) return@execute
             val snapshot = try {
                 val activities = launcher.getActivityList(null, user)
-                val updates = activities.map { it.componentName.packageName }.distinct().associateWith {
-                    packages.getPackageInfo(it, 0).lastUpdateTime
+                var incomplete = false
+                val candidates = mapAvailableItems(activities, { incomplete = true }) { app ->
+                    val info = app.applicationInfo
+                    val source = info.sourceDir.orEmpty()
+                    app to AppMetadata(app.componentName.flattenToString(), source,
+                        if (source.isEmpty()) 0L else File(source).lastModified(), info.flags, info.enabled)
                 }
-                val metadata = activities.map { app ->
-                    AppMetadata(app.componentName.flattenToString(), updates.getValue(app.componentName.packageName),
-                        app.applicationInfo.flags, app.applicationInfo.enabled)
-                }.sortedBy { it.id }
-                if (metadata == previousMetadata && requestedRevision == previousRevision && previousSnapshot != null) {
+                val metadata = candidates.map { it.second }.sortedBy { it.id }
+                if (!incomplete && metadata == previousMetadata && requestedRevision == previousRevision && previousSnapshot != null) {
                     requireNotNull(previousSnapshot)
                 } else {
                     val index = AlphabeticIndex<String>(Locale.JAPANESE).addLabels(Locale.ENGLISH).buildImmutableIndex()
                     val icons = mutableMapOf<String, ImageBitmap>()
-                    val entries = activities.map { app ->
+                    val entries = mapAvailableItems(candidates, { incomplete = true }) { (app, meta) ->
                         // Do not rasterize an obsolete batch when callbacks arrive during a long read.
                         if (closed || requested != generation.get()) return@execute
                         val id = app.componentName.flattenToString()
@@ -87,15 +94,18 @@ class LauncherRepository(
                         val bucket = index.getBucketIndex(label)
                         val group = index.getBucket(bucket)
                         if (loadIcons) {
-                            val key = IconKey(id, updates.getValue(app.componentName.packageName), iconSize, configuration)
+                            val key = IconKey(id, meta.source, meta.updated, iconSize, configuration)
                             val cached = iconCache.get(key)
-                            if (cached != null) icons[id] = cached else try {
-                                val drawable = app.getIcon(0)
-                                val bitmap = Bitmap.createBitmap(iconSize, iconSize, Bitmap.Config.ARGB_8888)
-                                drawable.setBounds(0, 0, iconSize, iconSize)
-                                drawable.draw(Canvas(bitmap))
-                                icons[id] = bitmap.asImageBitmap().also { iconCache.put(key, it) }
-                            } catch (_: RuntimeException) { /* A package may disappear during icon loading. */ }
+                            if (cached != null) icons[id] = cached else {
+                                val icon = try {
+                                    rasterize(app.getIcon(0)).also { iconCache.put(key, it) }
+                                } catch (_: Exception) {
+                                    // Do not cache the fallback; retry this app on the next refresh.
+                                    incomplete = true
+                                    rasterize(packages.defaultActivityIcon)
+                                }
+                                icons[id] = icon
+                            }
                         }
                         val flags = app.applicationInfo.flags
                         AppEntry(id, app.componentName.packageName, label, bucket,
@@ -111,12 +121,19 @@ class LauncherRepository(
                         loaded = true).also {
                         previousMetadata = metadata
                         previousRevision = requestedRevision
-                        previousSnapshot = it
+                        previousSnapshot = if (incomplete) null else it
                     }
                 }
             } catch (_: Exception) { LauncherSnapshot(failed = true) }
             handler.post { if (!closed && requested == generation.get()) publish(snapshot) }
         }
+    }
+
+    private fun rasterize(drawable: android.graphics.drawable.Drawable): ImageBitmap {
+        val bitmap = Bitmap.createBitmap(iconSize, iconSize, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, iconSize, iconSize)
+        drawable.draw(Canvas(bitmap))
+        return bitmap.asImageBitmap()
     }
 
     override fun close() {
@@ -125,8 +142,8 @@ class LauncherRepository(
         worker.shutdownNow()
     }
 
-    private data class AppMetadata(val id: String, val updated: Long, val flags: Int, val enabled: Boolean)
-    private data class IconKey(val component: String, val updated: Long, val pixels: Int, val configuration: String)
+    private data class AppMetadata(val id: String, val source: String, val updated: Long, val flags: Int, val enabled: Boolean)
+    private data class IconKey(val component: String, val source: String, val updated: Long, val pixels: Int, val configuration: String)
 
     companion object {
         // Process-wide and bounded; recreation can reuse icons. Settings never requests them.

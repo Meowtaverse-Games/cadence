@@ -43,7 +43,7 @@ class LocalStore(context: Context) {
             val array = TimetableJson.decode(text) as TimetableValue.ArrayValue
             array.values.map { (it as TimetableValue.StringValue).value.also { id ->
                 require(id.isNotBlank() && '/' in id && id.none(Char::isWhitespace))
-            } }.also { require(it.size <= FAVORITE_LIMIT && it.distinct().size == it.size) }
+            } }.also { require(it.distinct().size == it.size) }
         }
         ReadValue(ids, false)
     } catch (_: Exception) {
@@ -51,10 +51,11 @@ class LocalStore(context: Context) {
         ReadValue(emptyList(), true)
     }
 
+    // Unavailable saved IDs do not consume installed slots and may exceed the visible limit.
     @Synchronized
     fun saveFavorites(ids: List<String>) {
         check(!readFavorites().failed) { "Unreadable favorites must be preserved" }
-        require(ids.size <= FAVORITE_LIMIT && ids.distinct().size == ids.size)
+        require(ids.distinct().size == ids.size)
         require(ids.all { it.isNotBlank() && '/' in it && it.none(Char::isWhitespace) })
         write("favorites.json", TimetableJson.encode(
             TimetableValue.ArrayValue(ids.map { TimetableValue.StringValue(it) }),

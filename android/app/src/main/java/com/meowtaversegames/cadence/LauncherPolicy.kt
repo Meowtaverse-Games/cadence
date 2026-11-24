@@ -17,15 +17,26 @@ data class AppEntry(
 data class AppSection(val bucket: Int, val heading: String, val apps: List<AppEntry>)
 data class FavoriteChange(val ids: List<String>, val limitReached: Boolean = false)
 
-fun addFavorite(ids: List<String>, id: String): FavoriteChange = when {
+fun addFavorite(ids: List<String>, id: String, installedIds: Set<String>? = null): FavoriteChange = when {
     id in ids -> FavoriteChange(ids)
-    ids.size >= FAVORITE_LIMIT -> FavoriteChange(ids, limitReached = true)
+    installedFavoriteCount(ids, installedIds) >= FAVORITE_LIMIT -> FavoriteChange(ids, limitReached = true)
     else -> FavoriteChange(ids + id)
 }
 fun removeFavorite(ids: List<String>, id: String): List<String> = ids.filterNot { it == id }
-/** null means no successful inventory yet; failed/empty reads must never erase saved IDs. */
-fun pruneFavorites(ids: List<String>, installedIds: Set<String>?, readFailed: Boolean): List<String> =
-    if (readFailed || installedIds.isNullOrEmpty()) ids else ids.filter { it in installedIds }
+/** Only a definitive package removal may discard unavailable saved components. */
+fun removePackageFavorites(ids: List<String>, packageName: String): List<String> =
+    ids.filterNot { it.substringBefore('/') == packageName }
+
+/** A disappearing or unreadable item must not discard the rest of an inventory. */
+inline fun <T, R : Any> mapAvailableItems(
+    items: List<T>,
+    onFailure: (Exception) -> Unit = {},
+    transform: (T) -> R,
+): List<R> = items.mapNotNull { item ->
+    try { transform(item) } catch (failure: Exception) { onFailure(failure); null }
+}
+
+fun consumesHomeBack(drawer: Boolean, defaultHome: Boolean): Boolean = drawer || defaultHome
 
 fun installedFavoriteCount(ids: List<String>, installedIds: Set<String>?): Int =
     if (installedIds == null) ids.size else ids.count { it in installedIds }
