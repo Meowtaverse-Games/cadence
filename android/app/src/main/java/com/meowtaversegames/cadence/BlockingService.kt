@@ -131,7 +131,7 @@ class BlockingService : Service() {
                 queryInFlight = false
                 if (destroyed || !active) return@post
                 if (batch == null) {
-                    runtime.refreshPermissions()
+                    runtime.refreshPermissions(force = false)
                     return@post
                 }
                 // Permission changes invalidate in-flight history. Use current targets/window
