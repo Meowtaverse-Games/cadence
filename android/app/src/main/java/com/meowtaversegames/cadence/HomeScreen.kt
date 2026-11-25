@@ -1,8 +1,6 @@
 package com.meowtaversegames.cadence
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.flow.first
@@ -97,12 +95,9 @@ fun HomeScreen(
     // Recreated on HOME even during a fling, so a jump never displays the old deformation.
     var motionSuppressed by remember(homeRequest) { mutableStateOf(true) }
     val motionEnabled = scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f
-    val motionTarget = if (motionEnabled && !motionSuppressed && listState.isScrollInProgress) 1f else 0f
-    val motionStrength = animateFloatAsState(motionTarget,
-        animationSpec = tween(if (motionTarget > 0f) 120 else 260), label = "scroll strength")
     LaunchedEffect(homeRequest, motionSuppressed) {
         if (motionSuppressed) {
-            snapshotFlow { !listState.isScrollInProgress && motionStrength.value == 0f }.first { it }
+            snapshotFlow { !listState.isScrollInProgress }.first { it }
             motionSuppressed = false
         }
     }
@@ -124,6 +119,7 @@ fun HomeScreen(
     val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed) {
         homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
     }
+    val entranceProgress = rememberEntranceProgress(listState, layout.items, motionEnabled, motionSuppressed, homeRequest)
     val colors = LocalHomeColors.current
     fun changeQuery(value: String) {
         onQueryChange(value)
@@ -144,15 +140,10 @@ fun HomeScreen(
                             alpha = 1f; rotationZ = 0f
                             return@graphicsLayer
                         }
-                        // Read layout and animated state at draw time, never during row composition.
-                        val info = listState.layoutInfo
-                        val row = info.visibleItemsInfo.firstOrNull { it.key == item.key }
-                        val motion = if (row != null)
-                            calculateScrollMotion(row.offset.toFloat(), row.size.toFloat(),
-                                info.viewportStartOffset.toFloat(), info.viewportEndOffset.toFloat(), motionStrength.value)
-                            else RowMotion()
+                        // Read key state and progress only at draw time; no per-frame recomposition.
+                        val motion = entranceMotion(entranceProgress[item.key]?.value ?: 1f)
                         translationX = this.size.width * motion.translationXFraction
-                        translationY = motion.translationY
+                        translationY = this.size.height * motion.translationYFraction
                         scaleX = motion.scale; scaleY = motion.scale
                         alpha = motion.alpha
                         rotationZ = motion.rotation
