@@ -30,8 +30,11 @@ app は現段階では unit test を持たないため、`testDebugUnitTest` の
 CI では JDK 21 と Android SDK がある Ubuntu ランナーで検証し、JUnit XML を
 `android-test-results`、APK を `cadence-android-debug-apk` に保存する。
 debug の APK は、secret `ANDROID_DEBUG_KEYSTORE_BASE64` の固定の鍵（`~/.android/debug.keystore` に
-展開する）で署名するため、版を上げても上書きで入れられる。secret が無い実行では、その場で作った鍵になる。
-手元のビルドの APK は手元の鍵で署名されるので、CI の APK を入れた端末には上書きで入らない。
+展開する）で署名するため、版を上げても上書きで入れられる。ビルドの後に、APK の署名者がその鍵であることを
+`apksigner` で確かめ、違えば CI を失敗させる。secret が無い実行では、その場で作った鍵になる。
+
+固定の鍵と違う鍵の APK（固定の鍵を使う前の CI の APK、secret が無い実行の APK、手元のビルドの APK）とは、
+互いに上書きで入らない。入れ替えるときはアンインストールが要り、端末内の保存（お気に入り、テーマ、ウィジェット）が消える。
 
 `:core:test` は JDK 21 で実行できる。`:app` のビルド・lint・テストには Android SDK も必要。
 エージェントの sandbox の中では Gradle の native library を読み込めない場合があるため、
