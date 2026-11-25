@@ -418,7 +418,10 @@ snapshot の種類と行動の組が直前に記録した snapshot と同じで�
 - 保存: 並び順と高さを端末内に保存する（同期しない）。起動のとき、`AppWidgetHost.getAppWidgetIds` に
   あって保存に無い ID は消す。保存にあって提供元が見つからないものは、一時的な状態（SD カードの取り外し、
   アプリの無効化）がありうるので保存から消さず、表示もしない。保存から消すのは、置き換えでない削除を
-  `LauncherApps.Callback.onPackageRemoved` で受けたときと、利用者が外したときだけにする。
+  `LauncherApps.Callback.onPackageRemoved` で受けたとき、利用者が外したとき、起動のときに
+  `AppWidgetHost.getAppWidgetIds` に無い保存の ID（Cadence が止まっている間に提供元が削除されるなどして、
+  システムが消したもの。戻らない）を見つけたときだけにする（取得に失敗したときは消さない）。上限の 5 個は、
+  保存のうち今表示できるもの（提供元が見つかるもの。ブロック中に隠したものを含む）で数える。
 - 更新: `AppWidgetHost.startListening` を `onStart`、`stopListening` を `onStop` で呼ぶ。
 - 読み込めないウィジェット（提供元のエラー）は、その場所に「読み込めません」と出し、ほかのウィジェットと
   ホームの表示を止めない。
