@@ -76,8 +76,9 @@ jobs:
           for apk in app/build/outputs/apk/debug/*.apk; do
             certs=$("$apksigner" verify --print-certs "$apk")
             # The signer label varies by apksigner version and scheme, e.g.
-            # "Signer #1 certificate ..." or "Signer (minSdkVersion=...) certificate ...".
-            actual=$(printf '%s\n' "$certs" | sed -n 's/^Signer.* certificate SHA-256 digest: //p' | sort -u)
+            # "Signer #1 certificate ...", "Signer (minSdkVersion=...) certificate ..."
+            # or "V2 Signer: certificate ...". Source stamp lines are excluded.
+            actual=$(printf '%s\n' "$certs" | sed -n '/^Source Stamp/d; s/^.*Signer.* certificate SHA-256 digest: //p' | sort -u)
             if [ "$actual" != "$EXPECTED_FINGERPRINT" ]; then
               printf '%s\n' "$certs"
               echo "::error::$apk is not signed only with the fixed debug key (found: ${actual:-none})"
