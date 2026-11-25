@@ -22,7 +22,12 @@ class MainActivity : ComponentActivity() {
     private var favoritesFailed by mutableStateOf(false)
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private var error by mutableStateOf<String?>(null)
-    private var drawer by mutableStateOf(false)
+    private val homeListState = androidx.compose.foundation.lazy.LazyListState()
+    private var themeSettings by mutableStateOf(HomeThemeSettings())
+    private var wallpaper by mutableStateOf<WallpaperPalette?>(null)
+    private var awaitingWallpaper by mutableStateOf(true)
+    private var cachedAppearance: HomeAppearance? = null
+    private lateinit var wallpaperObserver: WallpaperObserver
     private var query by mutableStateOf("")
     private var homeRequest by mutableIntStateOf(0)
 
@@ -31,7 +36,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         window.isNavigationBarContrastEnforced = false
-        drawer = savedInstanceState?.getBoolean("drawer") ?: false
+        themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
+        cachedAppearance = savedInstanceState?.takeIf { it.containsKey("homeAccentSource") }?.let {
+            HomeAppearance(it.getBoolean("homeDarkText"), it.getInt("homeAccentSource"))
+        } ?: lastAppearance
+        wallpaperObserver = WallpaperObserver(this) {
+            wallpaper = it
+            awaitingWallpaper = false
+        }
         query = savedInstanceState?.getString("query").orEmpty()
         repository = LauncherRepository(this, onPackageRemoved = ::removePackageFavorites) {
             if (it.failed) {
@@ -42,7 +54,16 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            CadenceTheme {
+            val colors = homeColors(themeSettings, wallpaper, cachedAppearance.takeIf { awaitingWallpaper })
+            SideEffect {
+                cachedAppearance = HomeAppearance(colors.darkText, colors.accentSource)
+                lastAppearance = cachedAppearance
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = colors.darkText
+                    isAppearanceLightNavigationBars = colors.darkText
+                }
+            }
+            LauncherTheme(colors) {
                 var now by remember { mutableStateOf(Instant.now()) }
                 LaunchedEffect(Unit) {
                     // Alarms and runtime own the block decision. This also handles delayed boundary delivery
@@ -81,7 +102,7 @@ class MainActivity : ComponentActivity() {
                     homeRequest, ::launchApp, ::saveFavorites, ::toggleTarget, ::showAppInfo,
                     { app -> open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.packageName, null))) },
                     { open(Intent(this, SettingsActivity::class.java)) },
-                    drawer, query, { drawer = it }, { query = it },
+                    query, { query = it }, homeListState, themeSettings.size,
                     defaultHome = runtime.permissionState.home,
                 )
                 error?.let { message ->
@@ -102,6 +123,8 @@ class MainActivity : ComponentActivity() {
         val stored = runtime.store.readFavorites()
         favorites = stored.value.orEmpty()
         favoritesFailed = stored.failed
+        themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
+        wallpaperObserver.refresh()
         // Check metadata without discarding temporarily unavailable favorites.
         repository.refresh()
     }
@@ -110,20 +133,32 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         error = null
-        drawer = false
         query = ""
+        homeListState.requestScrollToItem(0)
+        window.decorView.clearFocus()
+        getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            .hideSoftInputFromWindow(window.decorView.windowToken, 0)
         homeRequest++
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean("drawer", drawer)
         outState.putString("query", query)
+        cachedAppearance?.let {
+            outState.putBoolean("homeDarkText", it.darkText)
+            outState.putInt("homeAccentSource", it.accentSource)
+        }
         super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
+        wallpaperObserver.close()
         repository.close()
         super.onDestroy()
+    }
+
+    companion object {
+        // Reopening HOME in the same process also keeps the last colors without a saved Bundle.
+        private var lastAppearance: HomeAppearance? = null
     }
 
     private fun launchApp(app: AppEntry) {

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +28,8 @@ class SettingsActivity : ComponentActivity() {
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private lateinit var repository: LauncherRepository
     private var favoritesFailed by mutableStateOf(false)
+    private var homeTheme by mutableStateOf(HomeThemeSettings())
+    private var homeThemeFailed by mutableStateOf(false)
     private var actionError by mutableStateOf<String?>(null)
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         runtime.refreshPermissions()
@@ -34,6 +37,8 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Auto system-bar styles follow the device theme; content already uses safeDrawingPadding.
+        enableEdgeToEdge()
         repository = LauncherRepository(this, loadIcons = false) { snapshot ->
             if (snapshot.failed) actionError = "アプリの一覧を読み込めませんでした"
             else apps = snapshot.apps
@@ -61,6 +66,19 @@ class SettingsActivity : ComponentActivity() {
                             Text("保存済みのお気に入りのファイルを読み出せないため、空として表示しています。ブロックには影響しません。元のファイルを保護するため追加・並べ替えの保存は行いません。ホームへ戻ると再度読み込みます。")
                         }
                         actionError?.let { Text(it) }
+                    }
+                    item {
+                        Text("見た目", style = MaterialTheme.typography.titleLarge)
+                        if (homeThemeFailed) Text("見た目を読み込めません。元のファイルを保護するため保存できません")
+                        ThemeChoices("文字の明暗", TextTone.entries, homeTheme.tone, !homeThemeFailed, { it.label }) {
+                            saveHomeTheme(homeTheme.copy(tone = it))
+                        }
+                        ThemeChoices("アクセントの色", Accent.entries, homeTheme.accent, !homeThemeFailed, { it.label }) {
+                            saveHomeTheme(homeTheme.copy(accent = it))
+                        }
+                        ThemeChoices("文字の大きさと行の間隔", HomeSize.entries, homeTheme.size, !homeThemeFailed, { it.label }) {
+                            saveHomeTheme(homeTheme.copy(size = it))
+                        }
                     }
                     items(PermissionKind.entries) { kind ->
                         val missing = kind in runtime.permissionState.missing()
@@ -113,6 +131,9 @@ class SettingsActivity : ComponentActivity() {
         runtime.reconcile(ReconcileSource.VISIBLE_ACTIVITY)
         protectedPackages = Permissions.protectedPackages(this)
         favoritesFailed = runtime.store.readFavorites().failed
+        val theme = runtime.store.homeTheme.read()
+        homeTheme = theme.value ?: HomeThemeSettings()
+        homeThemeFailed = theme.failed
         repository.refresh()
     }
 
@@ -121,10 +142,29 @@ class SettingsActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun saveHomeTheme(value: HomeThemeSettings) {
+        try { runtime.store.homeTheme.save(value); homeTheme = value }
+        catch (_: Exception) { actionError = "見た目を保存できませんでした。元のファイルは保護されています" }
+    }
+
     private fun openSettings(intent: Intent) {
         try { startActivity(intent) } catch (_: ActivityNotFoundException) {
             try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
             catch (_: RuntimeException) { actionError = "設定アプリから Cadence の権限を確認してください" }
         } catch (_: SecurityException) { actionError = "設定アプリから Cadence の権限を確認してください" }
+    }
+}
+
+@Composable
+private fun <T> ThemeChoices(title: String, options: List<T>, selected: T, enabled: Boolean,
+    label: (T) -> String, onSelect: (T) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Text(title, modifier = Modifier.padding(top = 12.dp))
+    Box {
+        OutlinedButton(enabled = enabled, onClick = { expanded = true }) { Text(label(selected)) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option -> DropdownMenuItem(text = { Text(label(option)) },
+                onClick = { onSelect(option); expanded = false }) }
+        }
     }
 }
