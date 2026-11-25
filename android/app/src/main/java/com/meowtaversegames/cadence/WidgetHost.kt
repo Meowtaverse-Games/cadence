@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.TextView
+import android.widget.FrameLayout
 import android.widget.RemoteViews
 import kotlin.math.abs
 
@@ -75,32 +76,75 @@ class CadenceWidgetView(context: Context, private val log: () -> Unit) : AppWidg
         tracking = false; removeCallbacks(hold)
         super.onDetachedFromWindow()
     }
+    var providerFailed = false
+        private set
+    var onFailureChanged: () -> Unit = {}
+    private fun setProviderFailure(failed: Boolean) {
+        if (failed) log()
+        providerFailed = failed
+        onFailureChanged()
+    }
     override fun getErrorView(): View {
-        log()
-        return TextView(context).apply { text = "読み込めません"; setTextColor(android.graphics.Color.GRAY) }
+        setProviderFailure(true)
+        return super.getErrorView()
     }
     override fun updateAppWidget(remoteViews: RemoteViews?) {
-        try { super.updateAppWidget(remoteViews) }
-        catch (_: RuntimeException) { showFailure() }
+        try {
+            setProviderFailure(false)
+            super.updateAppWidget(remoteViews)
+        } catch (_: RuntimeException) { setProviderFailure(true) }
     }
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         try { super.onLayout(changed, left, top, right, bottom) }
-        catch (_: RuntimeException) { post { showFailure() } }
+        catch (_: RuntimeException) { setProviderFailure(true) }
     }
-    private fun showFailure() {
-        removeAllViews()
-        addView(errorView)
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        try { super.onMeasure(widthMeasureSpec, heightMeasureSpec) }
+        catch (_: RuntimeException) {
+            setProviderFailure(true)
+            setMeasuredDimension(View.MeasureSpec.getSize(widthMeasureSpec), View.MeasureSpec.getSize(heightMeasureSpec))
+        }
     }
-    private var reportedSize: Pair<Float, Float>? = null
-    fun reportSize(width: Float, height: Float) {
-        if (width <= 1f || reportedSize == (width to height)) return
+    fun reportSize(width: Float, height: Float): Boolean {
         try {
             if (android.os.Build.VERSION.SDK_INT >= 31) updateAppWidgetSize(Bundle(), listOf(android.util.SizeF(width, height)))
             else {
                 @Suppress("DEPRECATION")
                 updateAppWidgetSize(Bundle(), width.toInt(), height.toInt(), width.toInt(), height.toInt())
             }
-            reportedSize = width to height
-        } catch (_: RuntimeException) { showFailure() }
+            return true
+        } catch (_: RuntimeException) { setProviderFailure(true); return false }
+    }
+}
+
+/** Error UI is a sibling owned by Cadence, never a replacement of AppWidgetHostView's children.
+ * Keep the host listening while hidden so a later successful RemoteViews update can recover it. */
+class WidgetFrame(context: Context, val widgetView: CadenceWidgetView) : FrameLayout(context) {
+    private val error = TextView(context).apply {
+        text = "読み込めません"
+        setTextColor(android.graphics.Color.GRAY)
+        setOnLongClickListener { widgetView.onHold(); true }
+    }
+    private val render = Runnable {
+        widgetView.visibility = if (widgetView.providerFailed) View.GONE else View.VISIBLE
+        error.visibility = if (widgetView.providerFailed) View.VISIBLE else View.GONE
+    }
+    init {
+        addView(widgetView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(error, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        widgetView.onFailureChanged = {
+            // getErrorView can run inside measure/layout; defer only the outer visibility change.
+            removeCallbacks(render)
+            post(render)
+        }
+        render.run()
+    }
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        render.run()
+    }
+    override fun onDetachedFromWindow() {
+        removeCallbacks(render)
+        super.onDetachedFromWindow()
     }
 }

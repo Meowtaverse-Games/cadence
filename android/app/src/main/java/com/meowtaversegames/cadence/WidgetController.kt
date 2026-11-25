@@ -26,7 +26,10 @@ class WidgetController(private val activity: ComponentActivity, private val runt
     var providers by mutableStateOf(emptyMap<Int, AppWidgetProviderInfo>()); private set
     var picker by mutableStateOf(savedState?.getBoolean("widgetPicker") ?: false)
     var pending by mutableStateOf(restorePending(savedState)); private set
-    val addReason: String? get() = widgetAddReason(saved, failed)
+    private val sizeReports = WidgetSizeReports()
+    fun reportSize(id: Int, view: CadenceWidgetView, width: Float, height: Float) =
+        sizeReports.report(id, width, height) { view.reportSize(width, height) }
+    val addReason: String? get() = widgetAddReason(saved, failed, providers.keys)
 
     // AppWidgetHost only exposes a request-code configuration API. This registry bridges it to
     // registerForActivityResult, including registry state/pending-result restoration.
@@ -56,7 +59,12 @@ class WidgetController(private val activity: ComponentActivity, private val runt
         // A save can have completed before the system captured the previous pending Bundle.
         if (pending?.stage != WidgetStage.RECONFIGURE && saved.any { it.id == pending?.widget?.id }) pending = null
         try {
-            orphanWidgetIds(host.appWidgetIds.toList(), saved, pending?.widget?.id, failed).forEach(::delete)
+            val hostIds = host.appWidgetIds.toSet()
+            if (!failed) {
+                val retained = retainedHostWidgets(saved, hostIds, pending?.widget?.id)
+                if (retained != saved) persist(retained)
+                orphanWidgetIds(hostIds.toList(), saved, pending?.widget?.id, failed).forEach(::delete)
+            }
         } catch (_: RuntimeException) { log("widget_cleanup_failed") }
         // SAVE never awaits an external result and is safe to resume idempotently.
         if (pending?.stage == WidgetStage.SAVE) commitPending()
@@ -80,19 +88,18 @@ class WidgetController(private val activity: ComponentActivity, private val runt
         failed = stored.failed
         providers = saved.mapNotNull { widget -> boundInfo(widget)?.let { widget.id to it } }.toMap()
     }
-    private fun boundInfo(widget: SavedWidget): AppWidgetProviderInfo? = try {
-        manager.getAppWidgetInfo(widget.id)?.takeIf { info ->
-            info.provider.flattenToString() == widget.provider &&
-                activity.getSystemService(android.content.pm.LauncherApps::class.java)
-                    .isPackageEnabled(info.provider.packageName, Process.myUserHandle())
-        }
-    } catch (_: RuntimeException) { log("widget_info_failed"); null }
+    private fun boundInfo(widget: SavedWidget): AppWidgetProviderInfo? = widgetProvider(activity, widget) {
+        log("widget_info_failed")
+    }
 
     fun startListening() { try { host.startListening() } catch (_: RuntimeException) { log("widget_listen_failed") } }
     fun stopListening() { try { host.stopListening() } catch (_: RuntimeException) { log("widget_stop_failed") } }
     fun openPicker() {
         refresh()
-        if (pending != null) return
+        if (pending != null) {
+            onError("ウィジェットの許可・設定の結果を待っています。開いている画面で完了するか取り消してください")
+            return
+        }
         addReason?.let { onError(it); return }
         picker = true
     }
@@ -104,7 +111,8 @@ class WidgetController(private val activity: ComponentActivity, private val runt
         if (runtime.decision?.end != null && info.provider.packageName in runtime.targets) return
         try {
             val id = host.allocateAppWidgetId()
-            val height = (info.minHeight / activity.resources.displayMetrics.density).coerceAtLeast(1f)
+            val height = initialWidgetHeight(info.minHeight / activity.resources.displayMetrics.density,
+                if (Build.VERSION.SDK_INT >= 31) info.targetCellHeight else 0, Build.VERSION.SDK_INT)
             pending = WidgetPending(SavedWidget(id, info.provider.flattenToString(), height), WidgetStage.BIND,
                 needsWidgetConfiguration(info.configure != null, Build.VERSION.SDK_INT,
                     Build.VERSION.SDK_INT >= 31 && info.widgetFeatures and AppWidgetProviderInfo.WIDGET_FEATURE_CONFIGURATION_OPTIONAL != 0))
@@ -136,7 +144,7 @@ class WidgetController(private val activity: ComponentActivity, private val runt
         val widget = pending?.takeIf { it.stage == WidgetStage.SAVE }?.widget ?: return
         refresh()
         if (saved.any { it.id == widget.id }) { pending = null; return }
-        if (failed || saved.size >= WIDGET_LIMIT || boundInfo(widget) == null) { fail(); return }
+        if (addReason != null || boundInfo(widget) == null) { fail(); return }
         if (persist(saved + widget)) advance(WidgetEvent.SAVED) else advance(WidgetEvent.FAILED)
     }
     fun reconfigure(widget: SavedWidget) {
@@ -175,7 +183,7 @@ class WidgetController(private val activity: ComponentActivity, private val runt
         runtime.store.widgets.save(next); refresh(); true
     } catch (_: Exception) { log("widget_save_failed"); onError("ウィジェットを保存できませんでした。元のファイルは保護されています"); false }
     private fun fail() { log("widget_add_failed"); advance(WidgetEvent.FAILED); onError("ウィジェットを追加・設定できませんでした") }
-    private fun delete(id: Int) { try { host.deleteAppWidgetId(id) } catch (_: RuntimeException) { log("widget_delete_failed") } }
+    private fun delete(id: Int) { sizeReports.forget(id); try { host.deleteAppWidgetId(id) } catch (_: RuntimeException) { log("widget_delete_failed") } }
     private fun log(event: String) = runtime.store.log(event)
 }
 
@@ -189,3 +197,12 @@ fun AppWidgetProviderInfo.canReconfigure(): Boolean = configure != null &&
 fun AppWidgetProviderInfo.heightPolicy(density: Float): WidgetHeight = WidgetHeight(minHeight / density,
     minResizeHeight / density, if (Build.VERSION.SDK_INT >= 31) maxResizeHeight / density else 0f,
     resizeMode and AppWidgetProviderInfo.RESIZE_VERTICAL != 0)
+
+/** Provider absence never implies that an allocated host ID was deleted. */
+fun widgetProvider(context: android.content.Context, widget: SavedWidget, onFailure: () -> Unit): AppWidgetProviderInfo? = try {
+    AppWidgetManager.getInstance(context).getAppWidgetInfo(widget.id)?.takeIf { info ->
+        info.provider.flattenToString() == widget.provider &&
+            context.getSystemService(android.content.pm.LauncherApps::class.java)
+                .isPackageEnabled(info.provider.packageName, Process.myUserHandle())
+    }
+} catch (_: RuntimeException) { onFailure(); null }

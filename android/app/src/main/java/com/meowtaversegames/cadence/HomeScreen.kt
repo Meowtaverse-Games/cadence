@@ -8,6 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -184,8 +187,11 @@ private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, o
         }, confirmButton = { TextButton(onClick = { menu = false }) { Text("閉じる") } })
     }
     val colors = LocalHomeColors.current
-    Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menu = true },
-        onLongClickLabel = "ホームのメニュー"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().pointerInput(Unit) {
+        detectTapGestures(onLongPress = { menu = true })
+    }.semantics {
+        customActions = listOf(CustomAccessibilityAction("ウィジェットを追加") { menu = true; true })
+    }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CADENCE", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, letterSpacing = 4.sp)
             TextButton(onClick = onSettings) { Text("設定") }

@@ -3,6 +3,7 @@ package com.meowtaversegames.cadence
 import kotlinx.serialization.json.*
 
 const val WIDGET_LIMIT = 5
+const val WIDGET_CELL_HEIGHT = 72f
 
 data class SavedWidget(val id: Int, val provider: String, val height: Float,
     val extras: JsonObject = JsonObject(emptyMap())) {
@@ -52,13 +53,30 @@ class WidgetStore(private val readText: () -> String?, private val writeText: (S
     }
 }
 
-fun widgetAddReason(widgets: List<SavedWidget>, failed: Boolean): String? = when {
+fun widgetAddReason(widgets: List<SavedWidget>, failed: Boolean, available: Set<Int>): String? = when {
     failed -> "ウィジェットの保存を読み込めないため追加できません。元のファイルは保護されています"
-    widgets.size >= WIDGET_LIMIT -> "ウィジェットは5個までです"
+    widgets.count { it.id in available } >= WIDGET_LIMIT -> "ウィジェットは5個までです"
     else -> null
 }
 fun orphanWidgetIds(hostIds: List<Int>, saved: List<SavedWidget>, pendingId: Int?, readFailed: Boolean): List<Int> =
     if (readFailed) emptyList() else hostIds.filter { id -> id != pendingId && saved.none { it.id == id } }
+/** Null inventory means lookup failed, not that the host has no IDs. */
+fun retainedHostWidgets(saved: List<SavedWidget>, hostIds: Set<Int>?, pendingId: Int?): List<SavedWidget> =
+    if (hostIds == null) saved else saved.filter { it.id in hostIds || it.id == pendingId }
+
+fun initialWidgetHeight(minHeight: Float, targetCellHeight: Int, api: Int): Float =
+    maxOf(WIDGET_CELL_HEIGHT, minHeight, if (api >= 31) targetCellHeight.coerceAtLeast(0) * WIDGET_CELL_HEIGHT else 0f)
+
+/** Lives with the controller rather than a LazyColumn view. Failed sends remain retryable. */
+class WidgetSizeReports {
+    private val sizes = mutableMapOf<Int, Pair<Float, Float>>()
+    fun report(id: Int, width: Float, height: Float, send: () -> Boolean) {
+        if (width <= 1f || sizes[id] == (width to height)) return
+        if (send()) sizes[id] = width to height
+    }
+    fun forget(id: Int) { sizes.remove(id) }
+}
+
 fun visibleWidgets(saved: List<SavedWidget>, available: Set<Int>, targets: Set<String>, blocked: Boolean): List<SavedWidget> =
     saved.filter { it.id in available && (!blocked || it.packageName !in targets) }
 fun removedPackageWidgets(saved: List<SavedWidget>, packageName: String, replacing: Boolean): List<SavedWidget> =
@@ -75,10 +93,10 @@ fun moveWidget(saved: List<SavedWidget>, visible: List<Int>, id: Int, direction:
 data class WidgetHeight(val minHeight: Float, val minResizeHeight: Float, val maxResizeHeight: Float,
     val vertical: Boolean) {
     fun bounds(screenHeight: Float): ClosedFloatingPointRange<Float> {
-        val cap = (screenHeight * .8f).coerceAtLeast(1f)
-        val upper = if (maxResizeHeight > 0) minOf(maxResizeHeight, cap) else cap
+        val cap = (screenHeight * .8f).coerceAtLeast(WIDGET_CELL_HEIGHT)
+        val upper = if (maxResizeHeight > 0) minOf(maxResizeHeight.coerceAtLeast(WIDGET_CELL_HEIGHT), cap) else cap
         // An oversized provider minimum cannot override the window safety cap.
-        val lower = (if (minResizeHeight > 0) minResizeHeight else minHeight).coerceIn(1f, upper)
+        val lower = (if (minResizeHeight > 0) minResizeHeight else minHeight).coerceIn(WIDGET_CELL_HEIGHT, upper)
         return lower..upper
     }
     fun step(current: Float, direction: Int, screenHeight: Float): Float =

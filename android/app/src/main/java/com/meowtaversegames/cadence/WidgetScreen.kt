@@ -114,14 +114,14 @@ fun HostedWidget(widget: SavedWidget, info: AppWidgetProviderInfo, controller: W
     val density = LocalDensity.current.density
     val screenHeight = LocalConfiguration.current.screenHeightDp.toFloat()
     val policy = info.heightPolicy(density)
-    val height = if (policy.vertical) widget.height.coerceIn(policy.bounds(screenHeight)) else widget.height
+    val height = if (policy.vertical) widget.height.coerceIn(policy.bounds(screenHeight)) else widget.height.coerceAtLeast(WIDGET_CELL_HEIGHT)
     var menu by remember(widget.id) { mutableStateOf(false) }
     var resizing by remember(widget.id) { mutableStateOf(false) }
     var width by remember { mutableFloatStateOf(1f) }
     Box(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         AndroidView(modifier = Modifier.fillMaxWidth().height(height.dp).onSizeChanged { width = it.width / density },
             factory = { context ->
-                try { controller.host.createView(context, widget.id, info) }
+                try { WidgetFrame(context, controller.host.createView(context, widget.id, info) as CadenceWidgetView) }
                 catch (_: RuntimeException) {
                     log()
                     TextView(context).apply {
@@ -130,9 +130,9 @@ fun HostedWidget(widget: SavedWidget, info: AppWidgetProviderInfo, controller: W
                     }
                 }
             }, update = { view ->
-                (view as? CadenceWidgetView)?.apply {
+                (view as? WidgetFrame)?.widgetView?.apply {
                     onHold = { menu = true }
-                    reportSize(width, height)
+                    controller.reportSize(widget.id, this, width, height)
                 }
             })
     }

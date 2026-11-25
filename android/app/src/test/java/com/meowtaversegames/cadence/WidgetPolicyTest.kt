@@ -141,10 +141,63 @@ class WidgetPolicyTest {
         assertEquals(listOf(a), removedPackageWidgets(listOf(a, b), a.packageName, false))
         assertEquals(emptyList<SavedWidget>(), removedPackageWidgets(listOf(a, b), "sample.other", false))
     }
-    @Test fun limitIncludesUnavailableSavedWidgetsAndReadFailureWins() {
-        assertNull(widgetAddReason(listOf(a), false))
-        assertNotNull(widgetAddReason((1..5).map { a.copy(id = it) }, false))
-        assertNotNull(widgetAddReason(emptyList(), true))
+    @Test fun limitCountsAvailableProvidersIncludingBlockedOnesAndReadFailureWins() {
+        assertNull(widgetAddReason(listOf(a), false, setOf(a.id)))
+        assertNotNull(widgetAddReason((1..5).map { a.copy(id = it) }, false, (1..5).toSet()))
+        assertNotNull(widgetAddReason(emptyList(), true, emptySet()))
+    }
+    @Test fun cleanupDropsSystemDeletedIdsButProtectsPendingAndFailedInventory() {
+        val saved = listOf(a, b, c)
+        assertEquals(listOf(a), retainedHostWidgets(saved, setOf(a.id), null))
+        assertEquals(listOf(a, b), retainedHostWidgets(saved, setOf(a.id), b.id))
+        assertEquals(saved, retainedHostWidgets(saved, null, null))
+        assertEquals(emptyList<SavedWidget>(), retainedHostWidgets(saved, emptySet(), null))
+    }
+    @Test fun unavailableProvidersRemainSavedWithoutTakingSlots() {
+        val saved = (1..6).map { a.copy(id = it) }
+        val retained = retainedHostWidgets(saved, (1..6).toSet(), null)
+        assertEquals(saved, retained)
+        assertNull(widgetAddReason(retained, false, setOf(1, 2, 3, 4)))
+        assertNotNull(widgetAddReason(retained, false, setOf(1, 2, 3, 4, 5)))
+        // Blocking affects visibility, not the available-provider set used for the limit.
+        assertTrue(visibleWidgets(retained, (1..6).toSet(), setOf(a.packageName), true).isEmpty())
+        assertNotNull(widgetAddReason(retained, false, (1..6).toSet()))
+    }
+    @Test fun sizeNotificationsSurviveViewRecreationAndTrackEachId() {
+        val reports = WidgetSizeReports()
+        var sends = 0
+        reports.report(11, 320f, 144f) { sends++; true }
+        reports.report(11, 320f, 144f) { fail("recreated view must not resend"); true }
+        reports.report(12, 320f, 144f) { sends++; true }
+        reports.report(11, 640f, 144f) { sends++; true }
+        reports.report(11, 640f, 216f) { sends++; true }
+        assertEquals(4, sends)
+        reports.forget(11)
+        reports.report(11, 640f, 216f) { sends++; true }
+        assertEquals(5, sends)
+    }
+    @Test fun failedSizeNotificationsAreRetriedAndUnmeasuredWidthsAreIgnored() {
+        val reports = WidgetSizeReports()
+        var sends = 0
+        reports.report(11, 1f, 144f) { fail("not measured yet"); true }
+        reports.report(11, 320f, 144f) { sends++; false }
+        reports.report(11, 320f, 144f) { sends++; true }
+        reports.report(11, 320f, 144f) { fail("already sent"); true }
+        assertEquals(2, sends)
+    }
+    @Test fun initialHeightUsesAtLeastOneCellAndModernTargetCells() {
+        assertEquals(72f, initialWidgetHeight(0f, 0, 29))
+        assertEquals(72f, initialWidgetHeight(1f, 0, 31))
+        assertEquals(216f, initialWidgetHeight(1f, 3, 31))
+        assertEquals(300f, initialWidgetHeight(300f, 3, 31))
+        assertEquals(72f, initialWidgetHeight(1f, 3, 30))
+        assertEquals(72f, initialWidgetHeight(1f, -1, 31))
+    }
+    @Test fun resizeHeightNeverFallsBelowOneCell() {
+        assertEquals(72f..800f, WidgetHeight(1f, 0f, 0f, true).bounds(1000f))
+        assertEquals(72f..800f, WidgetHeight(1f, 1f, 0f, true).bounds(1000f))
+        assertEquals(72f, WidgetHeight(1f, 1f, 0f, true).step(72f, -1, 1000f))
+        assertEquals(72f..72f, WidgetHeight(1f, 1f, 20f, true).bounds(50f))
     }
     @Test fun movesSkipHiddenItemsWithoutChangingTheirSlots() {
         assertEquals(listOf(c, b, a), moveWidget(listOf(a, b, c), listOf(11, 13), 11, 1))

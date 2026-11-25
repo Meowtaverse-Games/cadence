@@ -139,7 +139,9 @@ class SettingsActivity : ComponentActivity() {
         protectedPackages = Permissions.protectedPackages(this)
         favoritesFailed = runtime.store.readFavorites().failed
         val widgets = runtime.store.widgets.read()
-        widgetAddReason = widgetAddReason(widgets.value?.widgets.orEmpty(), widgets.failed)
+        val savedWidgets = widgets.value?.widgets.orEmpty()
+        val availableWidgets = savedWidgets.filter { widgetProvider(this, it) { runtime.store.log("widget_info_failed") } != null }
+        widgetAddReason = widgetAddReason(savedWidgets, widgets.failed, availableWidgets.map { it.id }.toSet())
         val theme = runtime.store.homeTheme.read()
         homeTheme = theme.value ?: HomeThemeSettings()
         homeThemeFailed = theme.failed
