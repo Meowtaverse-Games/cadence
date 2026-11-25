@@ -89,6 +89,7 @@ fun HomeScreen(
     widgetContent: @Composable (SavedWidget) -> Unit = {},
     onAddWidget: () -> Unit = {},
     widgetAddReason: String? = null,
+    favoritesFailed: Boolean = false,
 ) {
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
     val focus = LocalFocusManager.current
@@ -96,9 +97,9 @@ fun HomeScreen(
     // Recreated on HOME even during a fling, so a jump never displays the old deformation.
     var motionSuppressed by remember(homeRequest) { mutableStateOf(true) }
     val motionEnabled = scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f
-    val motionStrength = animateFloatAsState(
-        if (motionEnabled && !motionSuppressed && listState.isScrollInProgress) 1f else 0f,
-        animationSpec = tween(180), label = "scroll strength")
+    val motionTarget = if (motionEnabled && !motionSuppressed && listState.isScrollInProgress) 1f else 0f
+    val motionStrength = animateFloatAsState(motionTarget,
+        animationSpec = tween(if (motionTarget > 0f) 120 else 260), label = "scroll strength")
     LaunchedEffect(homeRequest, motionSuppressed) {
         if (motionSuppressed) {
             snapshotFlow { !listState.isScrollInProgress && motionStrength.value == 0f }.first { it }
@@ -120,7 +121,9 @@ fun HomeScreen(
     val apps = snapshot.apps
     LaunchedEffect(apps) { if (menu?.id !in apps.map { it.id }) menu = null }
     val visibleFavoriteIds = visibleFavorites(favorites, apps).map { it.id }
-    val layout = remember(snapshot.sections, favorites, query, widgets) { homeLayout(snapshot.sections, favorites, query, widgets) }
+    val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed) {
+        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
+    }
     val colors = LocalHomeColors.current
     fun changeQuery(value: String) {
         onQueryChange(value)
@@ -135,10 +138,16 @@ fun HomeScreen(
                 items(layout.items, key = { it.key }) { item ->
                     val moving = item !is HomeItem.Widget && item.key != "header"
                     val rowModifier = if (!moving) Modifier else Modifier.graphicsLayer {
+                        if (!motionEnabled || motionSuppressed) {
+                            translationX = 0f; translationY = 0f
+                            scaleX = 1f; scaleY = 1f
+                            alpha = 1f; rotationZ = 0f
+                            return@graphicsLayer
+                        }
                         // Read layout and animated state at draw time, never during row composition.
                         val info = listState.layoutInfo
                         val row = info.visibleItemsInfo.firstOrNull { it.key == item.key }
-                        val motion = if (motionEnabled && !motionSuppressed && row != null)
+                        val motion = if (row != null)
                             calculateScrollMotion(row.offset.toFloat(), row.size.toFloat(),
                                 info.viewportStartOffset.toFloat(), info.viewportEndOffset.toFloat(), motionStrength.value)
                             else RowMotion()

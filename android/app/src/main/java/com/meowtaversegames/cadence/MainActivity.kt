@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
                     onOpenCalendar = { openHeaderApp(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN,
                         Intent.CATEGORY_APP_CALENDAR), "カレンダーのアプリが見つかりません") },
                     scrollMotion = themeSettings.scrollMotion, animatorScale = animatorScale,
-                    defaultHome = runtime.permissionState.home,
+                    defaultHome = runtime.permissionState.home, favoritesFailed = favoritesFailed,
                     widgets = visibleWidgets,
                     widgetContent = { widget -> widgets.providers[widget.id]?.let { info ->
                         HostedWidget(widget, info, widgets, visibleWidgets.map { it.id }) { runtime.store.log("widget_create_failed") }

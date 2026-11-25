@@ -9,22 +9,22 @@ data class RowMotion(
     val rotation: Float = 0f,
 )
 
-/** Position-only curve in the bottom 30% of the viewport. Reversing scroll retraces it exactly. */
+/** Position-only curve in the bottom 45% of the viewport. Reversing scroll retraces it exactly. */
 fun calculateScrollMotion(itemTop: Float, itemHeight: Float, viewportStart: Float, viewportEnd: Float,
     strength: Float): RowMotion {
     if (listOf(itemTop, itemHeight, viewportStart, viewportEnd, strength).any { !it.isFinite() } ||
         itemHeight <= 0f || viewportEnd <= viewportStart || strength <= 0f) return RowMotion()
     // Double intermediates also keep extreme but finite layout inputs from overflowing.
     val viewport = viewportEnd.toDouble() - viewportStart
-    val bandStart = viewportEnd - viewport * .30
-    val depth = ((itemTop.toDouble() + itemHeight - bandStart) / (viewport * .30)).coerceIn(0.0, 1.0)
+    val bandStart = viewportEnd - viewport * .45
+    val depth = ((itemTop.toDouble() + itemHeight / 2.0 - bandStart) / (viewportEnd - bandStart)).coerceIn(0.0, 1.0)
     if (depth == 0.0) return RowMotion()
-    val bend = depth * depth * strength.coerceAtMost(1f)
+    val bend = depth * depth * (3 - 2 * depth) * strength.coerceAtMost(1f)
     return RowMotion(
-        translationXFraction = (-.10 * bend).toFloat(),
-        translationY = (minOf(itemHeight.toDouble(), viewport * .15) * .18 * depth * bend).toFloat(),
-        scale = (1 - .045 * bend).toFloat(),
-        alpha = (1 - .18 * bend).toFloat(),
-        rotation = (-3 * bend).toFloat(),
+        translationXFraction = (-.55 * bend).toFloat(),
+        translationY = (minOf(itemHeight.toDouble(), viewport * .15) * .8 * bend * bend).toFloat(),
+        scale = (1 - .12 * bend).toFloat(),
+        alpha = (1 - .75 * bend).toFloat(),
+        rotation = (-12 * bend).toFloat(),
     )
 }

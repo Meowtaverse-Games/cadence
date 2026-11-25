@@ -65,6 +65,15 @@ class HomeLayoutTest {
         assertEquals(listOf("header", "all-apps"), layout.items.take(2).map { it.key })
         assertFalse(layout.items.any { it.key == "favorites" || it.key == "empty-favorites" })
     }
+    @Test fun unreadableFavoritesHideEmptyHintAndRecoveryRestoresIt() {
+        val failed = homeLayout(sections, emptyList(), "", favoritesFailed = true)
+        assertFalse(failed.items.any { it.key == "empty-favorites" })
+        assertEquals(listOf("header", "all-apps"), failed.items.take(2).map { it.key })
+        failed.index.drop(1).forEach { assertTrue(failed.items[it.position] is HomeItem.Heading) }
+        val recovered = homeLayout(sections, emptyList(), "", favoritesFailed = false)
+        assertTrue(recovered.items.any { it.key == "empty-favorites" })
+        recovered.index.drop(1).forEach { assertTrue(recovered.items[it.position] is HomeItem.Heading) }
+    }
     @Test fun unlimitedFavoritesStillKeepAccurateIndexPositions() {
         val apps = (1..20).map { a.copy(id = "sample.app$it/Main") }
         val layout = homeLayout(listOf(AppSection(1, "A", apps)), apps.map { it.id }, "")
