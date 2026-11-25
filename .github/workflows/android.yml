@@ -53,9 +53,13 @@ jobs:
           echo "ANDROID_USER_HOME=$HOME/.android" >> "$GITHUB_ENV"
           mkdir -p "$HOME/.android"
           printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-          fingerprint=$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          if ! listing=$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey 2>&1); then
+            echo "::error::Could not read the debug keystore: $(printf '%s' "$listing" | grep -i 'error' | head -n 1)"
+            exit 1
+          fi
+          fingerprint=$(printf '%s\n' "$listing" | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
           if [ -z "$fingerprint" ]; then
-            echo "::error::Could not read the certificate of the debug keystore"
+            echo "::error::Could not find the SHA-256 certificate fingerprint in the debug keystore listing"
             exit 1
           fi
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
@@ -70,9 +74,13 @@ jobs:
           set -euo pipefail
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
           for apk in app/build/outputs/apk/debug/*.apk; do
-            actual=$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            certs=$("$apksigner" verify --print-certs "$apk")
+            # The signer label varies by apksigner version and scheme, e.g.
+            # "Signer #1 certificate ..." or "Signer (minSdkVersion=...) certificate ...".
+            actual=$(printf '%s\n' "$certs" | sed -n 's/^Signer.* certificate SHA-256 digest: //p' | sort -u)
             if [ "$actual" != "$EXPECTED_FINGERPRINT" ]; then
-              echo "::error::$apk is signed with ${actual:-an unknown key}, not the fixed debug key"
+              printf '%s\n' "$certs"
+              echo "::error::$apk is not signed only with the fixed debug key (found: ${actual:-none})"
               exit 1
             fi
             echo "$apk: signed with the fixed debug key"
