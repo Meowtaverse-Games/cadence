@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +37,8 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Auto system-bar styles follow the device theme; content already uses safeDrawingPadding.
+        enableEdgeToEdge()
         repository = LauncherRepository(this, loadIcons = false) { snapshot ->
             if (snapshot.failed) actionError = "アプリの一覧を読み込めませんでした"
             else apps = snapshot.apps

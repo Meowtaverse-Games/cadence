@@ -11,7 +11,8 @@ enum class Accent(val label: String, val rgb: Int?) {
     LEAF("若葉の道", 0x718C39),
 }
 enum class HomeSize(val label: String, val textSp: Int, val rowDp: Int) {
-    SMALL("小", 18, 56), MEDIUM("中", 22, 68), LARGE("大", 26, 80),
+    SMALL("小", 18, 56), MEDIUM("中", 22, 68), LARGE("大", 26, 80);
+    val lineHeightSp: Float get() = textSp * 1.25f
 }
 data class HomeThemeSettings(val tone: TextTone = TextTone.WALLPAPER, val accent: Accent = Accent.WALLPAPER,
     val size: HomeSize = HomeSize.MEDIUM)
@@ -20,8 +21,15 @@ data class WallpaperPalette(val primary: Int, val supportsDarkText: Boolean?)
 fun usesDarkText(tone: TextTone, wallpaper: WallpaperPalette?): Boolean = when (tone) {
     TextTone.WHITE -> false
     TextTone.BLACK -> true
-    TextTone.WALLPAPER -> wallpaper?.let { it.supportsDarkText ?: (luminance(it.primary) > 0.5) } ?: false
+    TextTone.WALLPAPER -> wallpaper?.let { it.supportsDarkText ?: (contrastRatio(it.primary, 0x000000) >= contrastRatio(it.primary, 0xFFFFFF)) } ?: false
 }
+/** Last resolved appearance is used only until the first wallpaper response arrives. */
+data class HomeAppearance(val darkText: Boolean, val accentSource: Int)
+fun initialDarkText(tone: TextTone, wallpaper: WallpaperPalette?, initial: HomeAppearance?): Boolean =
+    if (tone == TextTone.WALLPAPER && initial != null) initial.darkText else usesDarkText(tone, wallpaper)
+fun initialAccentSource(accent: Accent, wallpaperSource: Int, initial: HomeAppearance?): Int =
+    accent.rgb ?: initial?.accentSource ?: wallpaperSource
+
 fun luminance(rgb: Int): Double {
     fun channel(shift: Int): Double {
         val value = ((rgb shr shift) and 255) / 255.0

@@ -25,6 +25,8 @@ class MainActivity : ComponentActivity() {
     private val homeListState = androidx.compose.foundation.lazy.LazyListState()
     private var themeSettings by mutableStateOf(HomeThemeSettings())
     private var wallpaper by mutableStateOf<WallpaperPalette?>(null)
+    private var awaitingWallpaper by mutableStateOf(true)
+    private var cachedAppearance: HomeAppearance? = null
     private lateinit var wallpaperObserver: WallpaperObserver
     private var query by mutableStateOf("")
     private var homeRequest by mutableIntStateOf(0)
@@ -34,7 +36,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         window.isNavigationBarContrastEnforced = false
-        wallpaperObserver = WallpaperObserver(this) { wallpaper = it }
+        themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
+        cachedAppearance = savedInstanceState?.takeIf { it.containsKey("homeAccentSource") }?.let {
+            HomeAppearance(it.getBoolean("homeDarkText"), it.getInt("homeAccentSource"))
+        } ?: lastAppearance
+        wallpaperObserver = WallpaperObserver(this) {
+            wallpaper = it
+            awaitingWallpaper = false
+        }
         query = savedInstanceState?.getString("query").orEmpty()
         repository = LauncherRepository(this, onPackageRemoved = ::removePackageFavorites) {
             if (it.failed) {
@@ -45,8 +54,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            val colors = homeColors(themeSettings, wallpaper)
+            val colors = homeColors(themeSettings, wallpaper, cachedAppearance.takeIf { awaitingWallpaper })
             SideEffect {
+                cachedAppearance = HomeAppearance(colors.darkText, colors.accentSource)
+                lastAppearance = cachedAppearance
                 androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = colors.darkText
                     isAppearanceLightNavigationBars = colors.darkText
@@ -132,6 +143,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("query", query)
+        cachedAppearance?.let {
+            outState.putBoolean("homeDarkText", it.darkText)
+            outState.putInt("homeAccentSource", it.accentSource)
+        }
         super.onSaveInstanceState(outState)
     }
 
@@ -139,6 +154,11 @@ class MainActivity : ComponentActivity() {
         wallpaperObserver.close()
         repository.close()
         super.onDestroy()
+    }
+
+    companion object {
+        // Reopening HOME in the same process also keeps the last colors without a saved Bundle.
+        private var lastAppearance: HomeAppearance? = null
     }
 
     private fun launchApp(app: AppEntry) {

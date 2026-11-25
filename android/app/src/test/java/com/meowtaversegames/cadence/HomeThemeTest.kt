@@ -14,6 +14,29 @@ class HomeThemeTest {
         assertFalse(usesDarkText(TextTone.WALLPAPER, WallpaperPalette(0x222222, null)))
         assertFalse(usesDarkText(TextTone.WALLPAPER, null))
     }
+    @Test fun olderApiMidtonesChooseTheHigherContrastText() {
+        assertTrue(usesDarkText(TextTone.WALLPAPER, WallpaperPalette(0x959595, null)))
+        assertFalse(usesDarkText(TextTone.WALLPAPER, WallpaperPalette(0x6E6E6E, null)))
+    }
+    @Test fun cachedAppearanceLastsOnlyUntilWallpaperArrives() {
+        val cached = HomeAppearance(true, 0x456789)
+        assertTrue(initialDarkText(TextTone.WALLPAPER, null, cached))
+        assertEquals(cached.accentSource, initialAccentSource(Accent.WALLPAPER, 0x398B81, cached))
+        // The activity removes the initial snapshot on a response, including unavailable colors.
+        assertFalse(initialDarkText(TextTone.WALLPAPER, WallpaperPalette(0, false), null))
+        assertFalse(initialDarkText(TextTone.WALLPAPER, null, null))
+        assertEquals(0x123456, initialAccentSource(Accent.WALLPAPER, 0x123456, null))
+    }
+    @Test fun explicitChoicesOverrideCachedAppearance() {
+        val cached = HomeAppearance(true, 0x456789)
+        assertFalse(initialDarkText(TextTone.WHITE, null, cached))
+        assertTrue(initialDarkText(TextTone.BLACK, null, cached.copy(darkText = false)))
+        assertEquals(Accent.IRIS.rgb, initialAccentSource(Accent.IRIS, 0, cached))
+    }
+    @Test fun lineHeightScalesWithEachTextSize() {
+        assertEquals(listOf(22.5f, 27.5f, 32.5f), HomeSize.entries.map { it.lineHeightSp })
+    }
+
     @Test fun explicitToneIgnoresWallpaper() {
         assertTrue(usesDarkText(TextTone.BLACK, null))
         assertFalse(usesDarkText(TextTone.WHITE, WallpaperPalette(0xFFFFFF, true)))

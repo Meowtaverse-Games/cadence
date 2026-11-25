@@ -13,6 +13,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import java.util.concurrent.Executors
@@ -52,23 +54,23 @@ class WallpaperObserver(context: Context, private val publish: (WallpaperPalette
     }
 }
 
-data class HomeColors(val darkText: Boolean, val accent: Color) {
+data class HomeColors(val darkText: Boolean, val accent: Color, val accentSource: Int = accent.toArgb()) {
     val text = if (darkText) Color.Black else Color.White
     val opposite = if (darkText) Color.White else Color.Black
     val plate = Color(0xFF000000.toInt() or accentBackground(darkText))
-    val shadow = Shadow(opposite.copy(alpha = .85f), Offset(0f, 1f), 4f)
 }
 val LocalHomeColors = staticCompositionLocalOf { HomeColors(false, Color(0xFF79D8BE)) }
 
 @Composable
-fun homeColors(settings: HomeThemeSettings, wallpaper: WallpaperPalette?): HomeColors {
-    val darkText = usesDarkText(settings.tone, wallpaper)
+fun homeColors(settings: HomeThemeSettings, wallpaper: WallpaperPalette?, initial: HomeAppearance? = null): HomeColors {
+    val darkText = initialDarkText(settings.tone, wallpaper, initial)
     val context = LocalContext.current
-    val source = settings.accent.rgb ?: if (Build.VERSION.SDK_INT >= 31) {
+    val wallpaperSource = if (Build.VERSION.SDK_INT >= 31) {
         // Re-evaluate on wallpaper publication, including when the activity stays alive.
         if (darkText) dynamicLightColorScheme(context).primary.toArgb() else dynamicDarkColorScheme(context).primary.toArgb()
     } else wallpaper?.primary ?: 0x398B81
-    return HomeColors(darkText, Color(0xFF000000.toInt() or readableAccent(source, darkText)))
+    val source = initialAccentSource(settings.accent, wallpaperSource, initial)
+    return HomeColors(darkText, Color(0xFF000000.toInt() or readableAccent(source, darkText)), source)
 }
 
 @Composable
@@ -81,7 +83,10 @@ fun CadenceTheme(content: @Composable () -> Unit) {
 @Composable
 fun LauncherTheme(colors: HomeColors, content: @Composable () -> Unit) {
     val base = Typography()
-    fun TextStyle.shaded() = copy(color = colors.text, shadow = colors.shadow)
+    val shadow = with(LocalDensity.current) {
+        Shadow(colors.opposite.copy(alpha = .85f), Offset(0f, 1.dp.toPx()), 4.dp.toPx())
+    }
+    fun TextStyle.shaded() = copy(color = colors.text, shadow = shadow)
     val typography = base.copy(
         displayLarge = base.displayLarge.shaded(), displayMedium = base.displayMedium.shaded(), displaySmall = base.displaySmall.shaded(),
         headlineLarge = base.headlineLarge.shaded(), headlineMedium = base.headlineMedium.shaded(), headlineSmall = base.headlineSmall.shaded(),

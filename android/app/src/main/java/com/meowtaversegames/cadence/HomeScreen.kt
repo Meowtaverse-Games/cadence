@@ -97,7 +97,7 @@ fun HomeScreen(
         listState.requestScrollToItem(0)
         if (value.isEmpty()) { focus.clearFocus(); keyboard?.hide() }
     }
-    fun launchFirst() { layout.items.filterIsInstance<HomeItem.App>().firstOrNull()?.let { onLaunch(it.entry) } }
+    fun launchFirst() { firstSearchResult(query, layout.items)?.let(onLaunch) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
         Row(Modifier.weight(1f)) {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -210,7 +210,7 @@ private fun AppRow(app: AppEntry, icon: ImageBitmap?, size: HomeSize, onClick: (
             ambientColor = colors.opposite, spotColor = colors.opposite)
         if (icon != null) Image(icon, contentDescription = null, modifier = iconModifier)
         else Box(iconModifier, contentAlignment = Alignment.Center) { Text(app.label.take(1)) }
-        Text(app.label, fontSize = size.textSp.sp, style = MaterialTheme.typography.titleLarge,
+        Text(app.label, fontSize = size.textSp.sp, lineHeight = size.lineHeightSp.sp, style = MaterialTheme.typography.titleLarge,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }

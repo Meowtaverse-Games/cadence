@@ -41,3 +41,9 @@ fun indexAt(y: Float, height: Float, count: Int): Int? {
     if (count <= 0 || height <= 0 || !height.isFinite() || !y.isFinite()) return null
     return ((y / height).coerceIn(0f, 1f) * count).toInt().coerceIn(0, count - 1)
 }
+
+/** IME actions only launch a nonblank search result, never a favorite row. */
+fun firstSearchResult(query: String, items: List<HomeItem>): AppEntry? {
+    if (query.isBlank()) return null
+    return items.filterIsInstance<HomeItem.App>().firstOrNull { !it.favorite }?.entry
+}

@@ -9,6 +9,23 @@ class HomeLayoutTest {
     private val c = AppEntry("sample.canvas/Main", "sample.canvas", "Canvas", 2, "B")
     private val sections = listOf(AppSection(1, "A", listOf(a)), AppSection(2, "B", listOf(b, c)))
 
+    @Test fun emptySearchDoesNotLaunchFavoriteOrApp() {
+        assertNull(firstSearchResult("", homeLayout(sections, listOf(b.id), "").items))
+    }
+    @Test fun whitespaceSearchDoesNotLaunch() {
+        for (query in listOf(" ", "\t\n", "　")) {
+            assertNull(firstSearchResult(query, homeLayout(sections, listOf(b.id), query).items))
+        }
+    }
+    @Test fun missingSearchResultDoesNotLaunch() {
+        assertNull(firstSearchResult("missing", homeLayout(sections, listOf(b.id), "missing").items))
+        assertNull(firstSearchResult("Beta", listOf(HomeItem.App(b, favorite = true))))
+    }
+    @Test fun firstResultSkipsFavoriteRows() {
+        val results = homeLayout(sections, emptyList(), "a").items
+        assertEquals(a, firstSearchResult("a", listOf(HomeItem.App(b, favorite = true)) + results))
+    }
+
     @Test fun rowsAndIndexSharePositionsIncludingFavorites() {
         val layout = homeLayout(sections, listOf(b.id, a.id), "")
         assertEquals(listOf("header", "widgets", "favorites", "favorite-${b.id}", "favorite-${a.id}",
