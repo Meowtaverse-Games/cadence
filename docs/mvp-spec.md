@@ -654,8 +654,10 @@ debug ビルドだけ、Firebase なしでブロックを確かめるため「�
 - Windows: 本人の承認後に `windows-vX.Y.Z` タグを push したときだけ、GitHub Actions で
   self-contained のアプリを Velopack で梱包し、GitHub Releases に公開する。main のマージでは公開しない。
   PR / push の CI では公開しない確認用 Setup.exe と更新パッケージを成果物として保存する。
-- Android: PR / push の CI（`ubuntu-latest`）で debug の APK を成果物として保存する。release の署名の鍵は
-  リポジトリに含めず、CI の secret に置く。GitHub Releases は Windows の自動更新専用なので使わない
+- Android: PR / push の CI（`ubuntu-latest`）で debug の APK を成果物として保存する。debug の APK は、
+  secret `ANDROID_DEBUG_KEYSTORE_BASE64` の固定の鍵で署名し、版を上げてもアンインストールせずに上書きで
+  入れられる（アンインストールすると端末内の保存が消えるため）。secret が無い実行（fork からの PR など）では、
+  その場で作った鍵で署名する。release の署名の鍵も、リポジトリに含めず、CI の secret に置く。GitHub Releases は Windows の自動更新専用なので使わない
   （Velopack は新しい順に 10 件の Release しか見ないため）。配り方と更新の方法は PR A4 で決める。
 
 ## MVP の対象外

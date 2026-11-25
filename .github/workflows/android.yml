@@ -34,6 +34,23 @@ jobs:
         with:
           cache-provider: basic
           validate-wrappers: true
+      # Sign debug APKs with a fixed key so testers can update in place without
+      # uninstalling (which wipes on-device data). The key lives only in the
+      # repository secret; when it is unavailable (for example, PRs from forks),
+      # AGP generates a throwaway debug key as before.
+      - name: Install fixed debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "- Debug keystore: secret unavailable, using a generated key" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          umask 077
+          mkdir -p "$HOME/.android"
+          printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          fingerprint=$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sed -n 's/^[[:space:]]*SHA256: //p')
+          echo "- Debug keystore: fixed key, certificate SHA-256 \`$fingerprint\`" >> "$GITHUB_STEP_SUMMARY"
       - name: Test, lint, and build debug APK
         run: ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
       - name: Summarize JUnit results
