@@ -2,6 +2,7 @@ package com.meowtaversegames.cadence
 
 sealed interface HomeItem {
     val key: String
+    data class Widget(val widget: SavedWidget) : HomeItem { override val key = "widget-${widget.id}" }
     data class Fixed(override val key: String) : HomeItem
     data class Heading(val section: AppSection) : HomeItem { override val key = "heading-${section.bucket}" }
     data class App(val entry: AppEntry, val favorite: Boolean = false) : HomeItem {
@@ -12,7 +13,7 @@ data class HomeIndexEntry(val label: String, val position: Int)
 data class HomeLayout(val items: List<HomeItem>, val index: List<HomeIndexEntry>)
 
 /** One source of truth for rows and index offsets, after visibility and search filtering. */
-fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: String): HomeLayout {
+fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: String, widgets: List<SavedWidget> = emptyList()): HomeLayout {
     val visible = sections.mapNotNull { section ->
         section.apps.filter { matchesApp(it.label, query) }.takeIf { it.isNotEmpty() }?.let { section.copy(apps = it) }
     }
@@ -20,7 +21,7 @@ fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: Strin
     val rows = buildList {
         if (query.isEmpty()) {
             add(HomeItem.Fixed("header"))
-            add(HomeItem.Fixed("widgets")) // Zero-height insertion point for A2d.
+            widgets.forEach { add(HomeItem.Widget(it)) }
             add(HomeItem.Fixed("favorites"))
             val apps = visibleFavorites(favorites, sections.flatMap { it.apps })
             if (apps.isEmpty()) add(HomeItem.Fixed("empty-favorites"))

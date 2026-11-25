@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val runtime by lazy { BlockingRuntime.get(this) }
+    private lateinit var widgets: WidgetController
     private lateinit var repository: LauncherRepository
     private var snapshot by mutableStateOf(LauncherSnapshot())
     private var favorites by mutableStateOf(emptyList<String>())
@@ -44,13 +45,16 @@ class MainActivity : ComponentActivity() {
             wallpaper = it
             awaitingWallpaper = false
         }
+        widgets = WidgetController(this, runtime, savedInstanceState) { error = it }
+        if (savedInstanceState == null && intent.action == ACTION_ADD_WIDGET) widgets.openPicker()
         query = savedInstanceState?.getString("query").orEmpty()
-        repository = LauncherRepository(this, onPackageRemoved = ::removePackageFavorites) {
+        repository = LauncherRepository(this, onPackageRemoved = { removePackageFavorites(it); widgets.packageRemoved(it) }) {
             if (it.failed) {
                 snapshot = snapshot.copy(failed = true) // Retain the last successful inventory for counting.
                 error = "アプリの一覧を読み込めませんでした"
             } else {
                 snapshot = it
+                widgets.refresh()
             }
         }
         setContent {
@@ -83,6 +87,7 @@ class MainActivity : ComponentActivity() {
                     if (runtime.startFailed) add("ブロックを始められませんでした")
                     if (runtime.launchFailed) add("ブロック画面を出せませんでした")
                     if (runtime.readFailed) add("設定を読み込めません")
+                    if (widgets.failed) add("ウィジェットを読み込めません")
                     if (favoritesFailed) add("お気に入りを読み込めません")
                 }
                 val visibleSnapshot = remember(snapshot, runtime.targets, blocked) {
@@ -91,6 +96,7 @@ class MainActivity : ComponentActivity() {
                         if (visible.isEmpty()) null else section.copy(apps = visible)
                     })
                 }
+                val visibleWidgets = visibleWidgets(widgets.saved, widgets.providers.keys, runtime.targets, blocked)
                 val restingCount = restingAppCount(snapshot.apps, runtime.targets)
                 HomeScreen(
                     HomePresentation(now, runtime.statusText(), warnings,
@@ -104,7 +110,13 @@ class MainActivity : ComponentActivity() {
                     { open(Intent(this, SettingsActivity::class.java)) },
                     query, { query = it }, homeListState, themeSettings.size,
                     defaultHome = runtime.permissionState.home,
+                    widgets = visibleWidgets,
+                    widgetContent = { widget -> widgets.providers[widget.id]?.let { info ->
+                        HostedWidget(widget, info, widgets, visibleWidgets.map { it.id }) { runtime.store.log("widget_create_failed") }
+                    } },
+                    onAddWidget = widgets::openPicker, widgetAddReason = widgets.addReason,
                 )
+                if (widgets.picker) WidgetPicker(runtime.targets, blocked, widgets.pending == null, widgets::add, { widgets.picker = false })
                 error?.let { message ->
                     androidx.compose.material3.AlertDialog(onDismissRequest = { error = null },
                         text = { androidx.compose.material3.Text(message) },
@@ -125,6 +137,7 @@ class MainActivity : ComponentActivity() {
         favoritesFailed = stored.failed
         themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
         wallpaperObserver.refresh()
+        widgets.refresh()
         // Check metadata without discarding temporarily unavailable favorites.
         repository.refresh()
     }
@@ -133,6 +146,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         error = null
+        if (intent.action == ACTION_ADD_WIDGET) widgets.openPicker() else widgets.picker = false
         query = ""
         homeListState.requestScrollToItem(0)
         window.decorView.clearFocus()
@@ -142,12 +156,30 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        widgets.saveState(outState)
         outState.putString("query", query)
         cachedAppearance?.let {
             outState.putBoolean("homeDarkText", it.darkText)
             outState.putInt("homeAccentSource", it.accentSource)
         }
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        widgets.startListening()
+    }
+
+    override fun onStop() {
+        widgets.stopListening()
+        super.onStop()
+    }
+
+    @Deprecated("Bridge for AppWidgetHost configuration request codes")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!widgets.dispatchConfigurationResult(requestCode, resultCode, data)) {
+            super.onActivityResult(requestCode, resultCode, data)
+        }
     }
 
     override fun onDestroy() {

@@ -30,6 +30,7 @@ class SettingsActivity : ComponentActivity() {
     private var favoritesFailed by mutableStateOf(false)
     private var homeTheme by mutableStateOf(HomeThemeSettings())
     private var homeThemeFailed by mutableStateOf(false)
+    private var widgetAddReason by mutableStateOf<String?>(null)
     private var actionError by mutableStateOf<String?>(null)
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         runtime.refreshPermissions()
@@ -79,6 +80,12 @@ class SettingsActivity : ComponentActivity() {
                         ThemeChoices("文字の大きさと行の間隔", HomeSize.entries, homeTheme.size, !homeThemeFailed, { it.label }) {
                             saveHomeTheme(homeTheme.copy(size = it))
                         }
+                    }
+                    item {
+                        Button(enabled = widgetAddReason == null, onClick = {
+                            openSettings(Intent(this@SettingsActivity, MainActivity::class.java).setAction(ACTION_ADD_WIDGET))
+                        }) { Text("ウィジェットを追加") }
+                        widgetAddReason?.let { Text(it) }
                     }
                     items(PermissionKind.entries) { kind ->
                         val missing = kind in runtime.permissionState.missing()
@@ -131,6 +138,10 @@ class SettingsActivity : ComponentActivity() {
         runtime.reconcile(ReconcileSource.VISIBLE_ACTIVITY)
         protectedPackages = Permissions.protectedPackages(this)
         favoritesFailed = runtime.store.readFavorites().failed
+        val widgets = runtime.store.widgets.read()
+        val savedWidgets = widgets.value?.widgets.orEmpty()
+        val availableWidgets = savedWidgets.filter { widgetProvider(this, it) { runtime.store.log("widget_info_failed") } != null }
+        widgetAddReason = widgetAddReason(savedWidgets, widgets.failed, availableWidgets.map { it.id }.toSet())
         val theme = runtime.store.homeTheme.read()
         homeTheme = theme.value ?: HomeThemeSettings()
         homeThemeFailed = theme.failed

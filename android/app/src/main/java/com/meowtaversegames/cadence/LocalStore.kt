@@ -13,6 +13,8 @@ class LocalStore(context: Context) {
     private val directory = context.filesDir
     val homeTheme = HomeThemeStore({ read("home-theme.json") },
         { write("home-theme.json", it) }, { log("home_theme_read_failed") })
+    val widgets = WidgetStore({ read("widgets.json") }, { write("widgets.json", it) },
+        { log("widgets_read_failed") })
     private val timetable = LastGoodValue<CachedTimetable>()
     private val targets = LastGoodValue<Set<String>>()
 
@@ -78,14 +80,7 @@ class LocalStore(context: Context) {
 
     private fun write(name: String, text: String) {
         val file = AtomicFile(File(directory, name))
-        val stream = file.startWrite()
-        try {
-            stream.write(text.toByteArray(Charsets.UTF_8))
-            file.finishWrite(stream)
-        } catch (error: Exception) {
-            file.failWrite(stream)
-            throw error
-        }
+        atomicTextWrite(text, file::startWrite, file::finishWrite, file::failWrite)
     }
 
     /** Only callers' fixed event names, permission flags and blocked package names are recorded. */
