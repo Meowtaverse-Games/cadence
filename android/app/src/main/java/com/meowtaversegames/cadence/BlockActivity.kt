@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,12 +33,12 @@ class BlockActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            CadenceTheme {
                 BackHandler { home() }
                 LaunchedEffect(runtime.decision?.runService) {
                     if (runtime.decision?.runService == false) home()
                 }
-                Column(Modifier.fillMaxSize().safeDrawingPadding(),
+                Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding(),
                     verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("集中の時間です", style = MaterialTheme.typography.headlineLarge)
                     runtime.decision?.end?.let { Text("${clockText(it)} まで") }

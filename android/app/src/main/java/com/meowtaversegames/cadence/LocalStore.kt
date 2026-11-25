@@ -11,6 +11,8 @@ import java.util.concurrent.Executors
 
 class LocalStore(context: Context) {
     private val directory = context.filesDir
+    val homeTheme = HomeThemeStore({ read("home-theme.json") },
+        { write("home-theme.json", it) }, { log("home_theme_read_failed") })
     private val timetable = LastGoodValue<CachedTimetable>()
     private val targets = LastGoodValue<Set<String>>()
 
