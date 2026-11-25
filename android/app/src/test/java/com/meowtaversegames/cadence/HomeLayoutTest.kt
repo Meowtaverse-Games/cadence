@@ -28,9 +28,9 @@ class HomeLayoutTest {
 
     @Test fun rowsAndIndexSharePositionsIncludingFavorites() {
         val layout = homeLayout(sections, listOf(b.id, a.id), "")
-        assertEquals(listOf("header", "widgets", "favorites", "favorite-${b.id}", "favorite-${a.id}",
+        assertEquals(listOf("header", "favorites", "favorite-${b.id}", "favorite-${a.id}",
             "all-apps", "heading-1", "app-${a.id}", "heading-2", "app-${b.id}", "app-${c.id}"), layout.items.map { it.key })
-        assertEquals(listOf(HomeIndexEntry("↑", 0), HomeIndexEntry("A", 6), HomeIndexEntry("B", 8)), layout.index)
+        assertEquals(listOf(HomeIndexEntry("↑", 0), HomeIndexEntry("A", 5), HomeIndexEntry("B", 7)), layout.index)
         assertEquals(layout.items.size, layout.items.map { it.key }.distinct().size)
     }
     @Test fun hiddenSectionAndHiddenFavoriteDoNotShiftIndexIncorrectly() {
@@ -47,11 +47,18 @@ class HomeLayoutTest {
     }
     @Test fun emptyAndNoResultsKeepTopIndex() {
         val empty = homeLayout(emptyList(), emptyList(), "")
-        assertEquals(listOf("header", "widgets", "favorites", "empty-favorites", "all-apps", "empty-apps"), empty.items.map { it.key })
+        assertEquals(listOf("header", "favorites", "empty-favorites", "all-apps", "empty-apps"), empty.items.map { it.key })
         assertEquals(listOf(HomeIndexEntry("↑", 0)), empty.index)
         val search = homeLayout(sections, emptyList(), "missing")
         assertEquals(listOf("all-apps", "empty-apps"), search.items.map { it.key })
         assertEquals(listOf(HomeIndexEntry("↑", 0)), search.index)
+    }
+    @Test fun widgetsAreIndividualRowsAndIndexFollowsTheirCount() {
+        val widgets = listOf(SavedWidget(11, "sample.clock/Widget", 72f), SavedWidget(12, "sample.weather/Widget", 144f))
+        val layout = homeLayout(sections, listOf(b.id), "", widgets)
+        assertEquals(listOf("header", "widget-11", "widget-12", "favorites", "favorite-${b.id}"), layout.items.take(5).map { it.key })
+        layout.index.drop(1).forEach { assertTrue(layout.items[it.position] is HomeItem.Heading) }
+        assertTrue(homeLayout(sections, emptyList(), "Beta", widgets).items.none { it is HomeItem.Widget })
     }
     @Test fun indexSelectionClampsAndHandlesInvalidDimensions() {
         assertEquals(0, indexAt(-5f, 100f, 4))

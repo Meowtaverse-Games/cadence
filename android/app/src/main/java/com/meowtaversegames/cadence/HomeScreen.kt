@@ -75,6 +75,10 @@ fun HomeScreen(
     listState: LazyListState,
     size: HomeSize,
     defaultHome: Boolean = true,
+    widgets: List<SavedWidget> = emptyList(),
+    widgetContent: @Composable (SavedWidget) -> Unit = {},
+    onAddWidget: () -> Unit = {},
+    widgetAddReason: String? = null,
 ) {
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
     val focus = LocalFocusManager.current
@@ -90,7 +94,7 @@ fun HomeScreen(
     val apps = snapshot.apps
     LaunchedEffect(apps) { if (menu?.id !in apps.map { it.id }) menu = null }
     val visibleFavoriteIds = visibleFavorites(favorites, apps).map { it.id }
-    val layout = remember(snapshot.sections, favorites, query) { homeLayout(snapshot.sections, favorites, query) }
+    val layout = remember(snapshot.sections, favorites, query, widgets) { homeLayout(snapshot.sections, favorites, query, widgets) }
     val colors = LocalHomeColors.current
     fun changeQuery(value: String) {
         onQueryChange(value)
@@ -104,13 +108,13 @@ fun HomeScreen(
                 contentPadding = PaddingValues(start = 24.dp, end = 8.dp, top = 12.dp, bottom = 24.dp)) {
                 items(layout.items, key = { it.key }) { item ->
                     when (item) {
+                        is HomeItem.Widget -> widgetContent(item.widget)
                         is HomeItem.App -> AppRow(item.entry, snapshot.icons[item.entry.id], size,
                             { onLaunch(item.entry) }, { menu = item.entry })
                         is HomeItem.Heading -> Text(item.section.heading, Modifier.padding(vertical = 12.dp),
                             style = MaterialTheme.typography.labelLarge)
                         is HomeItem.Fixed -> when (item.key) {
-                            "header" -> HomeHeader(presentation, onSettings)
-                            "widgets" -> Unit
+                            "header" -> HomeHeader(presentation, onSettings, onAddWidget, widgetAddReason)
                             "favorites" -> Text("お気に入り", Modifier.padding(top = 20.dp, bottom = 12.dp),
                                 style = MaterialTheme.typography.labelLarge)
                             "empty-favorites" -> Text(if (favorites.isEmpty())
@@ -170,9 +174,18 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit) {
+private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, onAddWidget: () -> Unit, addReason: String?) {
+    var menu by remember { mutableStateOf(false) }
+    if (menu) CadenceTheme {
+        AlertDialog(onDismissRequest = { menu = false }, text = {
+            TextButton(enabled = addReason == null, onClick = { menu = false; onAddWidget() }) {
+                Text(addReason ?: "ウィジェットを追加")
+            }
+        }, confirmButton = { TextButton(onClick = { menu = false }) { Text("閉じる") } })
+    }
     val colors = LocalHomeColors.current
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menu = true },
+        onLongClickLabel = "ホームのメニュー"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CADENCE", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, letterSpacing = 4.sp)
             TextButton(onClick = onSettings) { Text("設定") }
