@@ -145,8 +145,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.action == ACTION_ADD_WIDGET) widgets.openPicker()
         error = null
+        if (intent.action == ACTION_ADD_WIDGET) widgets.openPicker() else widgets.picker = false
         query = ""
         homeListState.requestScrollToItem(0)
         window.decorView.clearFocus()

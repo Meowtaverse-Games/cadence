@@ -43,7 +43,7 @@ class CadenceWidgetView(context: Context, private val log: () -> Unit) : AppWidg
             onHold()
         }
     }
-    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+    private fun trackTouch(event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 held = false; tracking = true; downX = event.x; downY = event.y
@@ -56,10 +56,15 @@ class CadenceWidgetView(context: Context, private val log: () -> Unit) : AppWidg
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { tracking = false; removeCallbacks(hold) }
         }
+    }
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        trackTouch(event)
         return held
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Empty areas must also keep receiving events until the long-press timer fires.
+        // Once an empty area owns the stream, ViewGroup may skip onInterceptTouchEvent.
+        // Its UP/MOVE must still cancel the timer, just like events aimed at a child.
+        if (event.actionMasked != MotionEvent.ACTION_DOWN) trackTouch(event)
         return true
     }
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
@@ -86,13 +91,16 @@ class CadenceWidgetView(context: Context, private val log: () -> Unit) : AppWidg
         removeAllViews()
         addView(errorView)
     }
+    private var reportedSize: Pair<Float, Float>? = null
     fun reportSize(width: Float, height: Float) {
+        if (width <= 1f || reportedSize == (width to height)) return
         try {
             if (android.os.Build.VERSION.SDK_INT >= 31) updateAppWidgetSize(Bundle(), listOf(android.util.SizeF(width, height)))
             else {
                 @Suppress("DEPRECATION")
                 updateAppWidgetSize(Bundle(), width.toInt(), height.toInt(), width.toInt(), height.toInt())
             }
+            reportedSize = width to height
         } catch (_: RuntimeException) { showFailure() }
     }
 }

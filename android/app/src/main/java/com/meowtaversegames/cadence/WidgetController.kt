@@ -3,7 +3,6 @@ package com.meowtaversegames.cadence
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
-import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -98,7 +97,7 @@ class WidgetController(private val activity: ComponentActivity, private val runt
         picker = true
     }
     fun add(info: AppWidgetProviderInfo) {
-        if (pending != null) return
+        if (!picker || pending != null) return
         refresh()
         addReason?.let { onError(it); return }
         runtime.reconcile(ReconcileSource.VISIBLE_ACTIVITY)
