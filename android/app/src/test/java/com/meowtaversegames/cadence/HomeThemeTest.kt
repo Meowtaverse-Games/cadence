@@ -61,7 +61,7 @@ class HomeThemeTest {
         var file: String? = null
         val store = HomeThemeStore({ file }, { file = it }, { fail("unexpected read failure") })
         assertEquals(ReadValue(HomeThemeSettings(), false), store.read())
-        val value = HomeThemeSettings(TextTone.BLACK, Accent.IRIS, HomeSize.LARGE)
+        val value = HomeThemeSettings(TextTone.BLACK, Accent.IRIS, HomeSize.LARGE, ScrollMotion.NONE)
         store.save(value)
         assertEquals(ReadValue(value, false), store.read())
         store.save(HomeThemeSettings())
@@ -77,8 +77,28 @@ class HomeThemeTest {
         assertEquals(Json.parseToJsonElement("""{"version":3,"flags":[true]}"""), doc["future"])
         assertEquals(Accent.LEAF, store.read().value!!.accent)
     }
+    @Test fun oldThemeFilesDefaultToLowerLeftMotionWithoutLosingChoices() {
+        var file = """{"tone":"BLACK","accent":"IRIS","size":"LARGE"}"""
+        val store = HomeThemeStore({ file }, { file = it }, {})
+        val old = HomeThemeSettings(TextTone.BLACK, Accent.IRIS, HomeSize.LARGE)
+        assertEquals(ReadValue(old, false), store.read())
+        store.save(old.copy(scrollMotion = ScrollMotion.NONE))
+        assertEquals(old.copy(scrollMotion = ScrollMotion.NONE), store.read().value)
+        store.save(old)
+        assertEquals(old, store.read().value)
+    }
+    @Test fun futureMotionValueIsPreservedWhenChangingOtherSettings() {
+        var file = """{"scrollMotion":"FUTURE_MOTION","future":42}"""
+        val store = HomeThemeStore({ file }, { file = it }, {})
+        assertEquals(ScrollMotion.LOWER_LEFT, store.read().value!!.scrollMotion)
+        store.save(store.read().value!!.copy(size = HomeSize.SMALL))
+        assertEquals("FUTURE_MOTION", Json.parseToJsonElement(file).jsonObject["scrollMotion"]!!.jsonPrimitive.content)
+        assertEquals(42, Json.parseToJsonElement(file).jsonObject["future"]!!.jsonPrimitive.int)
+        store.save(store.read().value!!.copy(scrollMotion = ScrollMotion.NONE))
+        assertEquals(ScrollMotion.NONE, store.read().value!!.scrollMotion)
+    }
     @Test fun brokenFilesDefaultLogAndCannotBeOverwritten() {
-        for (broken in listOf("{", "[]", "null", "", """{"tone":123}""", """{"size":null}""")) {
+        for (broken in listOf("{", "[]", "null", "", """{"tone":123}""", """{"size":null}""", """{"scrollMotion":false}""")) {
             var writes = 0; var logs = 0
             val store = HomeThemeStore({ broken }, { writes++ }, { logs++ })
             assertEquals(ReadValue(HomeThemeSettings(), true), store.read())

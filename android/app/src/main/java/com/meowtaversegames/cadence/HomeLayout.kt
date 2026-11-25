@@ -22,9 +22,8 @@ fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: Strin
         if (query.isEmpty()) {
             add(HomeItem.Fixed("header"))
             widgets.forEach { add(HomeItem.Widget(it)) }
-            add(HomeItem.Fixed("favorites"))
             val apps = visibleFavorites(favorites, sections.flatMap { it.apps })
-            if (apps.isEmpty()) add(HomeItem.Fixed("empty-favorites"))
+            if (favorites.isEmpty()) add(HomeItem.Fixed("empty-favorites"))
             apps.forEach { add(HomeItem.App(it, favorite = true)) }
         }
         add(HomeItem.Fixed("all-apps"))

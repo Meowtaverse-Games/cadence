@@ -80,6 +80,9 @@ class SettingsActivity : ComponentActivity() {
                         ThemeChoices("文字の大きさと行の間隔", HomeSize.entries, homeTheme.size, !homeThemeFailed, { it.label }) {
                             saveHomeTheme(homeTheme.copy(size = it))
                         }
+                        ThemeChoices("スクロールの動き", ScrollMotion.entries, homeTheme.scrollMotion, !homeThemeFailed, { it.label }) {
+                            saveHomeTheme(homeTheme.copy(scrollMotion = it))
+                        }
                     }
                     item {
                         Button(enabled = widgetAddReason == null, onClick = {

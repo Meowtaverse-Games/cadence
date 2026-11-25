@@ -1,6 +1,11 @@
 package com.meowtaversegames.cadence
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
@@ -9,8 +14,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -77,6 +80,10 @@ fun HomeScreen(
     onQueryChange: (String) -> Unit,
     listState: LazyListState,
     size: HomeSize,
+    onOpenClock: () -> Unit,
+    onOpenCalendar: () -> Unit,
+    scrollMotion: ScrollMotion = ScrollMotion.LOWER_LEFT,
+    animatorScale: Float = 1f,
     defaultHome: Boolean = true,
     widgets: List<SavedWidget> = emptyList(),
     widgetContent: @Composable (SavedWidget) -> Unit = {},
@@ -86,9 +93,25 @@ fun HomeScreen(
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    // Recreated on HOME even during a fling, so a jump never displays the old deformation.
+    var motionSuppressed by remember(homeRequest) { mutableStateOf(true) }
+    val motionEnabled = scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f
+    val motionStrength = animateFloatAsState(
+        if (motionEnabled && !motionSuppressed && listState.isScrollInProgress) 1f else 0f,
+        animationSpec = tween(180), label = "scroll strength")
+    LaunchedEffect(homeRequest, motionSuppressed) {
+        if (motionSuppressed) {
+            snapshotFlow { !listState.isScrollInProgress && motionStrength.value == 0f }.first { it }
+            motionSuppressed = false
+        }
+    }
+    fun jumpTo(position: Int) {
+        motionSuppressed = true
+        listState.requestScrollToItem(position)
+    }
     fun closeSearch() {
         onQueryChange(""); menu = null; focus.clearFocus(); keyboard?.hide()
-        listState.requestScrollToItem(0)
+        jumpTo(0)
     }
     LaunchedEffect(homeRequest) { focus.clearFocus(); keyboard?.hide() }
     BackHandler(enabled = consumesHomeBack(query.isNotEmpty(), defaultHome)) {
@@ -101,7 +124,7 @@ fun HomeScreen(
     val colors = LocalHomeColors.current
     fun changeQuery(value: String) {
         onQueryChange(value)
-        listState.requestScrollToItem(0)
+        jumpTo(0)
         if (value.isEmpty()) { focus.clearFocus(); keyboard?.hide() }
     }
     fun launchFirst() { firstSearchResult(query, layout.items)?.let(onLaunch) }
@@ -110,29 +133,43 @@ fun HomeScreen(
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxHeight(),
                 contentPadding = PaddingValues(start = 24.dp, end = 8.dp, top = 12.dp, bottom = 24.dp)) {
                 items(layout.items, key = { it.key }) { item ->
-                    when (item) {
-                        is HomeItem.Widget -> widgetContent(item.widget)
-                        is HomeItem.App -> AppRow(item.entry, snapshot.icons[item.entry.id], size,
-                            { onLaunch(item.entry) }, { menu = item.entry })
-                        is HomeItem.Heading -> Text(item.section.heading, Modifier.padding(vertical = 12.dp),
-                            style = MaterialTheme.typography.labelLarge)
-                        is HomeItem.Fixed -> when (item.key) {
-                            "header" -> HomeHeader(presentation, onSettings, onAddWidget, widgetAddReason)
-                            "favorites" -> Text("お気に入り", Modifier.padding(top = 20.dp, bottom = 12.dp),
+                    val moving = item !is HomeItem.Widget && item.key != "header"
+                    val rowModifier = if (!moving) Modifier else Modifier.graphicsLayer {
+                        // Read layout and animated state at draw time, never during row composition.
+                        val info = listState.layoutInfo
+                        val row = info.visibleItemsInfo.firstOrNull { it.key == item.key }
+                        val motion = if (motionEnabled && !motionSuppressed && row != null)
+                            calculateScrollMotion(row.offset.toFloat(), row.size.toFloat(),
+                                info.viewportStartOffset.toFloat(), info.viewportEndOffset.toFloat(), motionStrength.value)
+                            else RowMotion()
+                        translationX = this.size.width * motion.translationXFraction
+                        translationY = motion.translationY
+                        scaleX = motion.scale; scaleY = motion.scale
+                        alpha = motion.alpha
+                        rotationZ = motion.rotation
+                        transformOrigin = TransformOrigin(0f, 1f)
+                    }
+                    Box(rowModifier.fillMaxWidth()) {
+                        when (item) {
+                            is HomeItem.Widget -> widgetContent(item.widget)
+                            is HomeItem.App -> AppRow(item.entry, snapshot.icons[item.entry.id], size,
+                                { onLaunch(item.entry) }, { menu = item.entry })
+                            is HomeItem.Heading -> Text(item.section.heading, Modifier.padding(vertical = 12.dp),
                                 style = MaterialTheme.typography.labelLarge)
-                            "empty-favorites" -> Text(if (favorites.isEmpty())
-                                "下の一覧から長押しで追加できます。最大8個まで並べられます。"
-                                else "今表示できるお気に入りはありません", Modifier.padding(vertical = 16.dp))
-                            "all-apps" -> Text(if (query.isEmpty()) "すべてのアプリ" else "検索結果",
-                                Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.titleMedium)
-                            "empty-apps" -> Text("一致するアプリがありません", Modifier.padding(vertical = 24.dp))
-                            else -> Unit
+                            is HomeItem.Fixed -> when (item.key) {
+                                "header" -> HomeHeader(presentation, onSettings, onOpenClock, onOpenCalendar, onAddWidget, widgetAddReason)
+                                "empty-favorites" -> Text("下の一覧から長押しで追加できます", Modifier.padding(vertical = 16.dp))
+                                "all-apps" -> Text(if (query.isEmpty()) "すべてのアプリ" else "検索結果",
+                                    Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.titleMedium)
+                                "empty-apps" -> Text("一致するアプリがありません", Modifier.padding(vertical = 24.dp))
+                                else -> Unit
+                            }
                         }
                     }
                 }
             }
             SectionIndex(layout.index, Modifier.fillMaxHeight().width(44.dp)) { index ->
-                listState.requestScrollToItem(layout.index[index].position)
+                jumpTo(layout.index[index].position)
             }
         }
         OutlinedTextField(value = query, onValueChange = ::changeQuery,
@@ -148,15 +185,14 @@ fun HomeScreen(
     menu?.let { app ->
       CadenceTheme {
         val isFavorite = app.id in favorites
-        val full = !isFavorite && installedFavoriteCount(favorites, installedIds) >= FAVORITE_LIMIT
         val inventoryReady = installedIds != null && !inventoryFailed
         AlertDialog(onDismissRequest = { menu = null }, title = { Text(app.label) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    TextButton(enabled = !full && (isFavorite || inventoryReady), onClick = {
-                        onFavorites(if (isFavorite) removeFavorite(favorites, app.id) else addFavorite(favorites, app.id, installedIds).ids)
+                    TextButton(enabled = isFavorite || inventoryReady, onClick = {
+                        onFavorites(if (isFavorite) removeFavorite(favorites, app.id) else addFavorite(favorites, app.id, installedIds))
                         menu = null
-                    }) { Text(if (isFavorite) "お気に入りから外す" else if (full) "お気に入りは8個までです" else if (!inventoryReady) "一覧の読み込み後に追加できます" else "お気に入りに追加") }
+                    }) { Text(if (isFavorite) "お気に入りから外す" else if (!inventoryReady) "一覧の読み込み後に追加できます" else "お気に入りに追加") }
                     if (isFavorite) {
                         TextButton(enabled = canMoveFavorite(visibleFavoriteIds, app.id, -1), onClick = {
                             onFavorites(moveVisibleFavorite(favorites, visibleFavoriteIds, app.id, -1)); menu = null
@@ -177,7 +213,8 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, onAddWidget: () -> Unit, addReason: String?) {
+private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, onOpenClock: () -> Unit,
+    onOpenCalendar: () -> Unit, onAddWidget: () -> Unit, addReason: String?) {
     var menu by remember { mutableStateOf(false) }
     if (menu) CadenceTheme {
         AlertDialog(onDismissRequest = { menu = false }, text = {
@@ -189,16 +226,21 @@ private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, o
     val colors = LocalHomeColors.current
     Column(Modifier.fillMaxWidth().pointerInput(Unit) {
         detectTapGestures(onLongPress = { menu = true })
-    }.semantics {
-        customActions = listOf(CustomAccessibilityAction("ウィジェットを追加") { menu = true; true })
     }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CADENCE", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, letterSpacing = 4.sp)
-            TextButton(onClick = onSettings) { Text("設定") }
+            SettingsGear(onSettings)
         }
         val localTime = presentation.now.atZone(ZoneId.systemDefault())
-        Text(DateTimeFormatter.ofPattern("HH:mm").format(localTime), fontSize = 58.sp, fontWeight = FontWeight.Light)
-        Text(DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.JAPANESE).format(localTime))
+        val time = DateTimeFormatter.ofPattern("HH:mm").format(localTime)
+        val date = DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.JAPANESE).format(localTime)
+        Text(time, Modifier.combinedClickable(onClick = onOpenClock, onLongClick = { menu = true },
+            onLongClickLabel = "ウィジェットを追加").semantics(mergeDescendants = true) {
+                contentDescription = "$time、時計を開く"
+            }, fontSize = 58.sp, fontWeight = FontWeight.Light)
+        Text(date, Modifier.combinedClickable(
+            onClick = onOpenCalendar, onLongClick = { menu = true }, onLongClickLabel = "ウィジェットを追加")
+            .heightIn(min = 48.dp).wrapContentHeight().semantics(mergeDescendants = true) { contentDescription = "$date、カレンダーを開く" })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(colors.accent, CircleShape))
             Text(presentation.status, style = MaterialTheme.typography.titleMedium)
@@ -296,11 +338,12 @@ private fun HomePreview(blocked: Boolean = false, warning: Boolean = false, empt
             if (blocked) "1 個のアプリを 20:30 まで休ませています" else null, notificationsMissing = warning),
             visible, if (empty) emptyList() else previewApps.map { it.id }, previewApps.map { it.id }.toSet(), false,
             setOf("synthetic.play"), emptySet(), false, 0,
-            {}, {}, {}, {}, {}, {}, search, { search = it }, rememberLazyListState(), size)
+            {}, {}, {}, {}, {}, {}, search, { search = it }, rememberLazyListState(), size,
+            onOpenClock = {}, onOpenCalendar = {})
     }
 }
 }
-@Preview(name = "暗い壁紙・白い文字", widthDp = 412, heightDp = 915)
+@Preview(name = "歯車・見出しなしのお気に入り", widthDp = 412, heightDp = 915)
 @Composable private fun FreeHomePreview() = HomePreview()
 @Preview(name = "ブロック中", widthDp = 412, heightDp = 915)
 @Composable private fun FocusHomePreview() = HomePreview(blocked = true)

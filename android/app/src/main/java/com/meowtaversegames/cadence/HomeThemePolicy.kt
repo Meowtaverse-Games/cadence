@@ -14,8 +14,9 @@ enum class HomeSize(val label: String, val textSp: Int, val rowDp: Int) {
     SMALL("小", 18, 56), MEDIUM("中", 22, 68), LARGE("大", 26, 80);
     val lineHeightSp: Float get() = textSp * 1.25f
 }
+enum class ScrollMotion(val label: String) { LOWER_LEFT("左下から"), NONE("なし") }
 data class HomeThemeSettings(val tone: TextTone = TextTone.WALLPAPER, val accent: Accent = Accent.WALLPAPER,
-    val size: HomeSize = HomeSize.MEDIUM)
+    val size: HomeSize = HomeSize.MEDIUM, val scrollMotion: ScrollMotion = ScrollMotion.LOWER_LEFT)
 
 data class WallpaperPalette(val primary: Int, val supportsDarkText: Boolean?)
 fun usesDarkText(tone: TextTone, wallpaper: WallpaperPalette?): Boolean = when (tone) {
@@ -65,7 +66,8 @@ class HomeThemeStore(private val readFile: () -> String?, private val writeFile:
         return enumValues<T>().firstOrNull { it.name == value.content } ?: default
     }
     private fun settings(doc: JsonObject) = HomeThemeSettings(option(doc, "tone", TextTone.WALLPAPER),
-        option(doc, "accent", Accent.WALLPAPER), option(doc, "size", HomeSize.MEDIUM))
+        option(doc, "accent", Accent.WALLPAPER), option(doc, "size", HomeSize.MEDIUM),
+        option(doc, "scrollMotion", ScrollMotion.LOWER_LEFT))
     @Synchronized fun read(): ReadValue<HomeThemeSettings> = try { ReadValue(settings(document()), false) }
     catch (_: Exception) { logFailure(); ReadValue(HomeThemeSettings(), true) }
     @Synchronized fun save(value: HomeThemeSettings) {
@@ -76,6 +78,7 @@ class HomeThemeStore(private val readFile: () -> String?, private val writeFile:
         if (value.tone != previous.tone || "tone" !in fields) fields["tone"] = JsonPrimitive(value.tone.name)
         if (value.accent != previous.accent || "accent" !in fields) fields["accent"] = JsonPrimitive(value.accent.name)
         if (value.size != previous.size || "size" !in fields) fields["size"] = JsonPrimitive(value.size.name)
+        if (value.scrollMotion != previous.scrollMotion || "scrollMotion" !in fields) fields["scrollMotion"] = JsonPrimitive(value.scrollMotion.name)
         writeFile(JsonObject(fields).toString())
     }
 }

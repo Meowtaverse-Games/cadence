@@ -3,9 +3,15 @@ package com.meowtaversegames.cadence
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.LauncherApps
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
+import android.provider.AlarmClock
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -24,6 +30,10 @@ class MainActivity : ComponentActivity() {
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private var error by mutableStateOf<String?>(null)
     private val homeListState = androidx.compose.foundation.lazy.LazyListState()
+    private var animatorScale by mutableFloatStateOf(1f)
+    private val animationScaleObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) { refreshAnimatorScale() }
+    }
     private var themeSettings by mutableStateOf(HomeThemeSettings())
     private var wallpaper by mutableStateOf<WallpaperPalette?>(null)
     private var awaitingWallpaper by mutableStateOf(true)
@@ -38,6 +48,8 @@ class MainActivity : ComponentActivity() {
             SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         window.isNavigationBarContrastEnforced = false
         themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
+        contentResolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false, animationScaleObserver)
         cachedAppearance = savedInstanceState?.takeIf { it.containsKey("homeAccentSource") }?.let {
             HomeAppearance(it.getBoolean("homeDarkText"), it.getInt("homeAccentSource"))
         } ?: lastAppearance
@@ -50,7 +62,7 @@ class MainActivity : ComponentActivity() {
         query = savedInstanceState?.getString("query").orEmpty()
         repository = LauncherRepository(this, onPackageRemoved = { removePackageFavorites(it); widgets.packageRemoved(it) }) {
             if (it.failed) {
-                snapshot = snapshot.copy(failed = true) // Retain the last successful inventory for counting.
+                snapshot = snapshot.copy(failed = true) // Retain the last successful inventory.
                 error = "アプリの一覧を読み込めませんでした"
             } else {
                 snapshot = it
@@ -109,6 +121,10 @@ class MainActivity : ComponentActivity() {
                     { app -> open(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.packageName, null))) },
                     { open(Intent(this, SettingsActivity::class.java)) },
                     query, { query = it }, homeListState, themeSettings.size,
+                    onOpenClock = { openHeaderApp(Intent(AlarmClock.ACTION_SHOW_ALARMS), "時計のアプリが見つかりません") },
+                    onOpenCalendar = { openHeaderApp(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN,
+                        Intent.CATEGORY_APP_CALENDAR), "カレンダーのアプリが見つかりません") },
+                    scrollMotion = themeSettings.scrollMotion, animatorScale = animatorScale,
                     defaultHome = runtime.permissionState.home,
                     widgets = visibleWidgets,
                     widgetContent = { widget -> widgets.providers[widget.id]?.let { info ->
@@ -136,6 +152,7 @@ class MainActivity : ComponentActivity() {
         favorites = stored.value.orEmpty()
         favoritesFailed = stored.failed
         themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
+        refreshAnimatorScale()
         wallpaperObserver.refresh()
         widgets.refresh()
         // Check metadata without discarding temporarily unavailable favorites.
@@ -183,6 +200,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        contentResolver.unregisterContentObserver(animationScaleObserver)
         wallpaperObserver.close()
         repository.close()
         super.onDestroy()
@@ -191,6 +209,16 @@ class MainActivity : ComponentActivity() {
     companion object {
         // Reopening HOME in the same process also keeps the last colors without a saved Bundle.
         private var lastAppearance: HomeAppearance? = null
+    }
+
+    private fun refreshAnimatorScale() {
+        animatorScale = try { Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) }
+            catch (_: RuntimeException) { 1f }
+    }
+
+    private fun openHeaderApp(intent: Intent, missingMessage: String) {
+        try { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (_: RuntimeException) { Toast.makeText(this, missingMessage, Toast.LENGTH_SHORT).show() }
     }
 
     private fun launchApp(app: AppEntry) {
