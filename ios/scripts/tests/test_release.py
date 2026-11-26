@@ -55,7 +55,7 @@ class BuildNumberTests(unittest.TestCase):
 
 class IpaVerificationTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent)
         self.addCleanup(self.temporary.cleanup)
         self.payload = Path(self.temporary.name) / "Payload"
         self.app = self.payload / "Cadence.app"
