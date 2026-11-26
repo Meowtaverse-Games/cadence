@@ -124,7 +124,7 @@ jobs:
           set -euo pipefail
           test ! -e app/google-services.json
           before=$(sha256sum app/build/outputs/apk/debug/*.apk)
-          trap 'rm -f app/google-services.json; rm -rf app/build/generated/res/google-services/debug' EXIT
+          trap 'rm -f app/google-services.json; rm -rf app/build/generated/res app/build/gmpAppId' EXIT
           python3 - <<'PYSYNTHETIC'
           import json
           from pathlib import Path
@@ -142,6 +142,15 @@ jobs:
           Path("app/google-services.json").write_text(json.dumps(config))
           PYSYNTHETIC
           ./gradlew :app:processDebugGoogleServices --no-daemon
-          test -s app/build/generated/res/google-services/debug/values/values.xml
+          python3 - <<'PYRESOURCE'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          # AGP chooses the generated-source directory; do not hard-code the plugin's old path.
+          matches = [element for file in Path("app/build/generated/res").rglob("values.xml")
+                     for element in ET.parse(file).getroot()
+                     if element.tag == "string" and element.get("name") == "google_app_id"]
+          assert len(matches) == 1 and matches[0].text == "1:000000000000:android:0000000000000000000000"
+          print("Synthetic Firebase resource verified.")
+          PYRESOURCE
           after=$(sha256sum app/build/outputs/apk/debug/*.apk)
           test "$before" = "$after"
