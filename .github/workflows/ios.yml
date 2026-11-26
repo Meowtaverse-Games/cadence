@@ -31,6 +31,8 @@ jobs:
       - name: Test CadenceCore (debug)
         working-directory: ios/CadenceCore
         run: swift test
+      - name: Test release upload checks with synthetic data
+        run: python3 -I -B -m unittest discover -s ios/scripts/tests
 
   app:
     strategy:
@@ -126,6 +128,10 @@ jobs:
       - name: Verify both extensions are embedded and contain no Firebase
         run: |
           app="$RUNNER_TEMP/CadenceDerivedData/Build/Products/Debug-iphonesimulator/Cadence.app"
+          for bundle in "$app" "$app/PlugIns/DeviceActivityMonitor.appex" "$app/PlugIns/ShieldConfiguration.appex"; do
+            plutil -lint "$bundle/PrivacyInfo.xcprivacy"
+            test "$(plutil -extract ITSAppUsesNonExemptEncryption raw "$bundle/Info.plist")" = false
+          done
           test -d "$app/PlugIns/DeviceActivityMonitor.appex"
           test -d "$app/PlugIns/ShieldConfiguration.appex"
           for extension in DeviceActivityMonitor ShieldConfiguration; do

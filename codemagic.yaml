@@ -4,14 +4,15 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 60
     # No triggering or publishing: start manually; do not upload to TestFlight.
-    environment:
+    environment: &ios-environment
       xcode: '26.6'
       groups:
         - cadence_apple
       vars:
         XCODEGEN_SHA256: a2e905fb68446e9bb4008cdfe2e13e3f176d0cbcca828b71770f8e53fca91b73
     scripts:
-      - name: Restore Firebase configuration from secret
+      - &restore-firebase
+        name: Restore Firebase configuration from secret
         script: |
           set +x
           set -euo pipefail
@@ -27,7 +28,8 @@ workflows:
               base64.b64decode(os.environ["GOOGLE_SERVICE_INFO_PLIST_BASE64"], validate=True))
           PYPLIST
           plutil -lint ios/GoogleService-Info.plist
-      - name: Install verified XcodeGen 2.44.1
+      - &generate-ios-project
+        name: Install verified XcodeGen 2.44.1
         script: |
           set -euo pipefail
           mkdir -p "$CM_BUILD_DIR/.ci-tools"
@@ -52,7 +54,8 @@ workflows:
           set -euo pipefail
           mkdir -p build/logs
           xcode-project build-ipa --project ios/Cadence.xcodeproj --scheme Cadence --config Release --archive-flags='-onlyUsePackageVersionsFromResolvedFile' --export-options-plist "$CM_BUILD_DIR/export_options.plist" 2>&1 | tee build/logs/ios-development.log
-      - name: Verify Firebase configuration is embedded in the IPA
+      - &verify-firebase-ipa
+        name: Verify Firebase configuration is embedded in the IPA
         script: |
           set -euo pipefail
           python3 - <<'PYIPA'
@@ -65,7 +68,69 @@ workflows:
                   assert "Payload/Cadence.app/GoogleService-Info.plist" in ipa.namelist(), "IPA に Firebase の設定がありません"
           print("IPA 内の Firebase 設定ファイルを確認しました。")
           PYIPA
-    artifacts:
+    artifacts: &ios-artifacts
       - build/ios/ipa/*.ipa
       - build/logs/*.log
       - /tmp/xcodebuild_logs/*.log
+  ios-release:
+    name: iOS TestFlight 内部テスト
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    # Start manually. Export restricts this build to internal TestFlight testing.
+    environment: *ios-environment
+    scripts:
+      - name: Check App Store app ID secret
+        script: |
+          set +x
+          set -euo pipefail
+          value="${APP_STORE_APP_ID:-}"
+          if [[ -z "${value//[[:space:]]/}" ]]; then
+            echo 'docs/apple-setup.md の手順11に従い、cadence_apple に APP_STORE_APP_ID を Secret として登録してください。'
+            exit 1
+          fi
+      - *restore-firebase
+      - *generate-ios-project
+      - name: Select the next TestFlight build number
+        script: |
+          set +x
+          set -euo pipefail
+          python3 ios/scripts/testflight-build-number.py
+      - name: Fetch App Store profiles for all three identifiers
+        script: |
+          set +x
+          set -euo pipefail
+          # Suppress CLI output that can contain certificate/profile account metadata.
+          keychain initialize >/dev/null 2>&1 || { echo '一時キーチェーンの初期化に失敗しました。'; exit 1; }
+          for bundle_id in com.meowtaverse-games.cadence com.meowtaverse-games.cadence.DeviceActivityMonitor com.meowtaverse-games.cadence.ShieldConfiguration; do
+            if ! app-store-connect fetch-signing-files "$bundle_id" --type IOS_APP_STORE --strict-match-identifier --create >/dev/null 2>&1; then
+              echo "$bundle_id の App Store 用署名ファイルの取得に失敗しました。API キーの権限・配布用 capability・証明書の上限を非公開で確認してください。"
+              exit 1
+            fi
+            echo "$bundle_id appStoreSigningFiles=true"
+          done
+          keychain add-certificates >/dev/null 2>&1 || { echo '証明書の取り込みに失敗しました。'; exit 1; }
+          if ! xcode-project use-profiles --project ios/Cadence.xcodeproj --archive-method app-store --custom-export-options='{"testFlightInternalTestingOnly": true}' --export-options-plist "$CM_BUILD_DIR/export_options.plist" >/dev/null 2>&1; then
+            echo 'App Store 用 profile の適用に失敗しました。3つの App ID と配布用 capability を確認してください。'
+            exit 1
+          fi
+      - name: Build App Store IPA with a shared build number and locked packages
+        script: |
+          set +x
+          set -euo pipefail
+          mkdir -p build/logs
+          # Command-line build settings override project AND target settings, including extensions.
+          xcode-project build-ipa --project ios/Cadence.xcodeproj --scheme Cadence --config Release --archive-flags='-onlyUsePackageVersionsFromResolvedFile' --archive-xcargs="CURRENT_PROJECT_VERSION=$CADENCE_BUILD_NUMBER" --export-options-plist "$CM_BUILD_DIR/export_options.plist" 2>&1 | tee build/logs/ios-release.log
+      - *verify-firebase-ipa
+      - name: Verify release entitlements, profiles and build numbers before upload
+        script: |
+          set +x
+          set -euo pipefail
+          python3 ios/scripts/verify-release-ipa.py
+    artifacts: *ios-artifacts
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        # Upload only. Internal groups receive processed builds via automatic distribution.
+        submit_to_app_store: false
