@@ -56,7 +56,7 @@ class SyncSession(
                 changed()
             }
             if (!fromCache) saveLastSync(now)
-            status = SyncStatus(lastSync = if (fromCache) status.lastSync else now, fromCache = fromCache)
+            status = SyncStatus(problem = null, lastSync = if (fromCache) status.lastSync else now, fromCache = fromCache)
         } catch (_: Exception) {
             status = status.copy(problem = "ローカルファイルを保存・読み込みできません", fromCache = fromCache)
         }

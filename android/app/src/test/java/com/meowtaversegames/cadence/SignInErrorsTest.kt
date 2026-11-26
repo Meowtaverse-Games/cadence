@@ -5,6 +5,8 @@ import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.FirebaseAuthException
 import org.junit.Assert.*
 import org.junit.Test
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
 
 class SignInErrorsTest {
     @Test fun invalidCredentialsUseWindowsWording() {
@@ -28,10 +30,12 @@ class SignInErrorsTest {
         val expected = "サインインできません。接続や設定を確認してください。"
         assertEquals(expected, signInErrorMessage(null))
         assertEquals(expected, signInErrorMessage("UNKNOWN"))
-        assertEquals(expected, signInErrorMessage(signInErrorCode(FirebaseNetworkException("synthetic private detail"))))
+        assertEquals(expected, signInErrorMessage(signInErrorCode(mock(FirebaseNetworkException::class.java))))
     }
     @Test fun sdkExceptionTypeAndCodeAreMapped() {
-        assertEquals("ERROR_TOO_MANY_REQUESTS", signInErrorCode(FirebaseTooManyRequestsException("synthetic")))
-        assertEquals("ERROR_USER_DISABLED", signInErrorCode(FirebaseAuthException("ERROR_USER_DISABLED", "synthetic")))
+        assertEquals("ERROR_TOO_MANY_REQUESTS", signInErrorCode(mock(FirebaseTooManyRequestsException::class.java)))
+        val failure = mock(FirebaseAuthException::class.java)
+        `when`(failure.errorCode).thenReturn("ERROR_USER_DISABLED")
+        assertEquals("ERROR_USER_DISABLED", signInErrorCode(failure))
     }
 }
