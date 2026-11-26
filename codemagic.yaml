@@ -69,3 +69,104 @@ workflows:
       - build/ios/ipa/*.ipa
       - build/logs/*.log
       - /tmp/xcodebuild_logs/*.log
+  android-firebase-debug:
+    name: Android Firebase 実機確認用 debug APK
+    instance_type: linux_x2
+    max_build_duration: 60
+    # Manual only. Firebase-enabled artifacts must stay in private Codemagic storage.
+    environment:
+      java: 21
+      groups:
+        - cadence_android
+    scripts:
+      - name: Restore and validate Firebase configuration
+        script: |
+          set +x
+          set -euo pipefail
+          umask 077
+          python3 - <<'PYCONFIG'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          secret = os.environ.get("GOOGLE_SERVICES_JSON_BASE64")
+          if not secret:
+              raise SystemExit("cadence_android に GOOGLE_SERVICES_JSON_BASE64 を Secret として登録してください。")
+          try:
+              raw = base64.b64decode(secret, validate=True)
+              config = json.loads(raw)
+              assert any(client.get("client_info", {}).get("android_client_info", {}).get("package_name")
+                         == "com.meowtaversegames.cadence" for client in config["client"])
+          except Exception:
+              raise SystemExit("Firebase 設定の JSON と Android のパッケージ名を確認してください。") from None
+          Path("android/app/google-services.json").write_bytes(raw)
+          print("Firebase 設定の形式とパッケージ名を確認しました。")
+          PYCONFIG
+      - name: Install fixed debug keystore
+        script: |
+          set +x
+          set -euo pipefail
+          if [ -z "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]; then
+            echo 'cadence_android に ANDROID_DEBUG_KEYSTORE_BASE64 を Secret として登録してください。'
+            exit 1
+          fi
+          umask 077
+          echo "ANDROID_USER_HOME=$HOME/.android" >> "$CM_ENV"
+          mkdir -p "$HOME/.android"
+          if ! printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"; then
+            echo 'debug の鍵を復元できません。Secret を確認してください。'
+            exit 1
+          fi
+          if ! keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null 2>&1; then
+            echo 'debug の鍵を読み込めません。GitHub Actions と同じ鍵を登録してください。'
+            exit 1
+          fi
+      - name: Build Firebase debug APK
+        script: |
+          set +x
+          set -euo pipefail
+          export ANDROID_USER_HOME="$HOME/.android"
+          cd android
+          ./gradlew :app:assembleDebug --no-daemon
+      - name: Verify APK signature and Firebase resource
+        script: |
+          set +x
+          set -euo pipefail
+          python3 - <<'PYAPK'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          def output(*args):
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+              if result.returncode:
+                  raise SystemExit("APK または固定の debug の鍵の検証に失敗しました。")
+              return result.stdout
+          sdk = Path(os.environ["ANDROID_HOME"])
+          versions = sorted((sdk / "build-tools").iterdir(),
+                            key=lambda p: tuple(int(n) for n in re.findall(r"\d+", p.name)))
+          build_tools = next((p for p in reversed(versions) if (p / "apksigner").is_file() and (p / "aapt2").is_file()), None)
+          if build_tools is None:
+              raise SystemExit("Android build-tools がありません。")
+          listing = output("keytool", "-J-Duser.language=en", "-list", "-v", "-keystore",
+                           str(Path.home() / ".android/debug.keystore"), "-storepass", "android", "-alias", "androiddebugkey")
+          match = re.search(r"SHA256:\s*([0-9A-Fa-f:]+)", listing)
+          if not match:
+              raise SystemExit("固定の鍵の SHA-256 を確認できません。")
+          expected = match[1].replace(":", "").lower()
+          apks = list(Path("android/app/build/outputs/apk/debug").glob("*.apk"))
+          if not apks:
+              raise SystemExit("APK がありません。")
+          for apk in apks:
+              certs = output(str(build_tools / "apksigner"), "verify", "--print-certs", str(apk))
+              actual = {m[1].lower() for line in certs.splitlines() if not line.startswith("Source Stamp")
+                        if (m := re.search(r"Signer.* certificate SHA-256 digest: ([0-9a-fA-F]+)", line))}
+              if actual != {expected}:
+                  raise SystemExit("APK の署名が固定の debug の鍵と一致しません。")
+              resources = output(str(build_tools / "aapt2"), "dump", "resources", str(apk))
+              if not re.search(r"\bstring/google_app_id\b", resources):
+                  raise SystemExit("APK に Firebase の設定がありません。")
+          print("APK の固定署名と Firebase 設定の resource を確認しました。")
+          PYAPK
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk

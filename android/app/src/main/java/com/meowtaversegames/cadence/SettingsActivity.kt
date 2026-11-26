@@ -71,6 +71,7 @@ class SettingsActivity : ComponentActivity() {
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("設定", style = MaterialTheme.typography.headlineLarge) }
                     item { Text(runtime.statusText()) }
+                    item { SyncSettings(runtime.sync) }
                     item {
                         if (runtime.readFailed) Text("設定を読み込めません。保存済みの設定を確認してください")
                         if (runtime.startFailed) Text("ブロックを始められませんでした")
