@@ -14,6 +14,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Rows retain this one object for the screen lifetime, including across HOME intents. */
@@ -43,8 +44,10 @@ class EntranceMotionState {
         clear()
     }
 
-    fun releaseAfterIdleFrame(generation: Long, scrolling: Boolean) {
+    fun releaseAfterIdleFrame(generation: Long, scrolling: Boolean): IdleRelease {
+        val result = suppression.idleRelease(generation, scrolling)
         suppression = suppression.afterIdleFrame(generation, scrolling)
+        return result
     }
 
     fun motion(key: String): RowMotion =
@@ -124,10 +127,11 @@ fun rememberEntranceMotion(listState: LazyListState, items: List<HomeItem>, enab
     }
     // Never keyed by suppression or HOME. Even an already idle request gets a release frame.
     LaunchedEffect(listState, state) {
-        snapshotFlow { state.suppression to listState.isScrollInProgress }.collectLatest { (gate, scrolling) ->
-            if (gate.suppressed && !scrolling) {
+        snapshotFlow { state.suppression }.collectLatest { gate ->
+            while (state.suppression.idleRelease(gate.generation, true) == IdleRelease.RETRY) {
+                snapshotFlow { listState.isScrollInProgress }.first { !it }
                 withFrameNanos { }
-                state.releaseAfterIdleFrame(gate.generation, listState.isScrollInProgress)
+                if (state.releaseAfterIdleFrame(gate.generation, listState.isScrollInProgress) != IdleRelease.RETRY) break
             }
         }
     }

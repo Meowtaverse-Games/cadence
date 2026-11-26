@@ -1,10 +1,17 @@
 package com.meowtaversegames.cadence
 
+enum class IdleRelease { RELEASE, RETRY, STOP }
+
 /** A generation identifies every jump, including a jump requested while already suppressed. */
 data class EntranceSuppression(val generation: Long = 0, val suppressed: Boolean = true) {
     fun request() = EntranceSuppression(generation + 1, true)
+    fun idleRelease(observedGeneration: Long, scrolling: Boolean): IdleRelease = when {
+        observedGeneration != generation || !suppressed -> IdleRelease.STOP
+        scrolling -> IdleRelease.RETRY
+        else -> IdleRelease.RELEASE
+    }
     fun afterIdleFrame(observedGeneration: Long, scrolling: Boolean): EntranceSuppression =
-        if (observedGeneration == generation && !scrolling) copy(suppressed = false) else this
+        if (idleRelease(observedGeneration, scrolling) == IdleRelease.RELEASE) copy(suppressed = false) else this
 }
 
 data class EntranceFrame(
