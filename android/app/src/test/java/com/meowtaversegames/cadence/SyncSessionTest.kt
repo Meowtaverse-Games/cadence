@@ -16,11 +16,15 @@ class SyncSessionTest {
         var timeWrites = 0
         var failSave = false
         var failTime = false
+        var failReconcile = false
         val logs = mutableListOf<String>()
         val session = SyncSession(last, { content }, {
             if (failSave) error("synthetic failure")
             content = it; writes++
-        }, { changes++ }, {
+        }, {
+            if (failReconcile) error("synthetic reconcile failure")
+            changes++
+        }, {
             if (failTime) error("synthetic failure")
             persistedTime = it; timeWrites++
         }, logs::add)
@@ -85,7 +89,7 @@ class SyncSessionTest {
             h.session.snapshot(h.token, null, fromCache, now)
             assertSame(original, h.content); assertEquals(0, h.changes); assertEquals(0, h.timeWrites)
             assertEquals(before, h.session.status.lastSync)
-            assertEquals("サーバーに時間割がありません", h.session.status.problem)
+            assertEquals(if (fromCache) null else "サーバーに時間割がありません", h.session.status.problem)
             assertEquals(listOf("sync_snapshot fromCache=$fromCache missing"), h.logs)
         }
     }
@@ -182,4 +186,44 @@ class SyncSessionTest {
         assertFalse(h.logs.joinToString().contains("Private synthetic marker"))
         assertFalse(h.logs.joinToString().contains("Asia/Tokyo"))
     }
+    @Test fun progressIsVisibleInSettingsButIsNotAHomeWarning() {
+        val h = Harness()
+        assertEquals("同期しています", h.session.status.text)
+        assertNull(h.session.status.problem)
+        h.session.snapshot(h.token, null, true, now)
+        assertEquals("同期しています", h.session.status.text)
+        assertNull(h.session.status.problem)
+    }
+
+    @Test fun missingCacheKeepsThePreviousErrorAndLastSync() {
+        val h = Harness(last = before)
+        h.session.error(h.token, "PERMISSION_DENIED")
+        val previous = h.session.status
+        h.session.snapshot(h.token, null, true, now)
+        assertEquals(previous, h.session.status)
+    }
+
+    @Test fun retryPreservesWarningUntilAValidSnapshotArrives() {
+        val h = Harness()
+        h.session.error(h.token, "PERMISSION_DENIED")
+        h.session.invalidate()
+        val token = h.session.restart()
+        assertEquals("時間割を読む権限がありません", h.session.status.problem)
+        h.session.snapshot(token, syntheticValue(), false, now)
+        assertNull(h.session.status.problem)
+        assertEquals("同期済みです", h.session.status.text)
+    }
+
+    @Test fun reconcileExceptionPropagatesWithoutBecomingAStorageError() {
+        val h = Harness(last = before)
+        h.failReconcile = true
+        val failure = assertThrows(IllegalStateException::class.java) {
+            h.session.snapshot(h.token, syntheticValue("Changed"), false, now)
+        }
+        assertEquals("synthetic reconcile failure", failure.message)
+        assertEquals(1, h.writes)
+        assertNull(h.session.status.problem)
+        assertEquals(0, h.timeWrites)
+    }
+
 }

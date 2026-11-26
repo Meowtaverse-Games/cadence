@@ -47,6 +47,7 @@ class BlockingRuntime private constructor(private val context: Context) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
     fun reconcile(source: ReconcileSource) {
+        if (source == ReconcileSource.VISIBLE_ACTIVITY) sync.foreground()
         refreshPermissions()
         val cached = store.readTimetable()
         val selected = store.readTargets()
