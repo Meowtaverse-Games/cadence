@@ -199,17 +199,18 @@ Account Holder が3つすべての Bundle ID について Family Controls の配
    `com.meowtaverse-games.cadence`、任意の SKU、主言語を選んで作る。名前は App Store 全体で重ならないものにする
    （TestFlight だけなら後で変えられる）。作成後の「App 情報」にある Apple ID（数字）を控える。
 3. TestFlight の「内部テスト」にグループを作り、自分（App Store Connect のユーザー）をテスターに入れる。
-   グループ名を控える。
-4. Codemagic のグループ `cadence_apple` に、次の2つを追加する（どちらもアカウントの情報なので Secret にする）。
+   グループの作成時（または作成後のグループの設定）で **「自動配信（Enable automatic distribution）」を有効にする**。
+   ワークフローはビルドをグループに割り当てず、外部テストの審査（Beta App Review）にも提出しないので、
+   内部テストへの配布はこの自動配信に任せる。
+4. Codemagic のグループ `cadence_apple` に、次の1つを追加する（アカウントの情報なので Secret にする）。
 
    | 変数 | 値 |
    |---|---|
    | `APP_STORE_APP_ID` | 手順2で控えた Apple ID（数字） |
-   | `TESTFLIGHT_BETA_GROUP` | 手順3のグループ名 |
 
 5. Codemagic で `ios-release` を手動で実行する。ワークフローは、App Store 配布用の証明書と3つの App Store 用の
    profile を API キーで取得し（無ければ作る）、ビルド番号を TestFlight の最新より1つ上げ、IPA を
-   App Store Connect に上げて内部テストのグループに配る。
+   App Store Connect に上げる。処理が終わると、手順3の自動配信で内部テストのグループに届く。
 6. 確認: App Store Connect の TestFlight にビルドが出て「テスト可能」になり、iPhone の TestFlight アプリから
    入れられること。入れた版で Screen Time の許可、ブロック、サインインと同期ができること（開発用の版と
    データは共有されない。開発用の版と同じ端末に入れると上書きになる）。
