@@ -189,6 +189,33 @@ Account Holder が3つすべての Bundle ID について Family Controls の配
 [Apple の申請説明](https://developer.apple.com/documentation/familycontrols/requesting-the-family-controls-entitlement)
 この開発用ワークフローは App Store Connect へアップロードしない。
 
+配布用の割り当て（Assigned）を確認したら、TestFlight の `ios-release` ワークフローの前に、次を人が行う。
+
+1. Developer の Identifiers で、3つの App ID（本体・DeviceActivityMonitor・ShieldConfiguration）を順に開き、
+   Family Controls の配布用（Distribution）が有効になっていることを確認する。開発用だけになっている場合は
+   配布用に切り替えて保存する。保存すると既存の開発用 profile が無効になることがあるので、そのときは
+   `ios-development` を手動で実行し直す（`--create` で作り直される）。
+2. App Store Connect の「アプリ」→「+」→「新規 App」で、プラットフォーム iOS、バンドル ID
+   `com.meowtaverse-games.cadence`、任意の SKU、主言語を選んで作る。名前は App Store 全体で重ならないものにする
+   （TestFlight だけなら後で変えられる）。作成後の「App 情報」にある Apple ID（数字）を控える。
+3. TestFlight の「内部テスト」にグループを作り、自分（App Store Connect のユーザー）をテスターに入れる。
+   グループ名を控える。
+4. Codemagic のグループ `cadence_apple` に、次の2つを追加する（どちらもアカウントの情報なので Secret にする）。
+
+   | 変数 | 値 |
+   |---|---|
+   | `APP_STORE_APP_ID` | 手順2で控えた Apple ID（数字） |
+   | `TESTFLIGHT_BETA_GROUP` | 手順3のグループ名 |
+
+5. Codemagic で `ios-release` を手動で実行する。ワークフローは、App Store 配布用の証明書と3つの App Store 用の
+   profile を API キーで取得し（無ければ作る）、ビルド番号を TestFlight の最新より1つ上げ、IPA を
+   App Store Connect に上げて内部テストのグループに配る。
+6. 確認: App Store Connect の TestFlight にビルドが出て「テスト可能」になり、iPhone の TestFlight アプリから
+   入れられること。入れた版で Screen Time の許可、ブロック、サインインと同期ができること（開発用の版と
+   データは共有されない。開発用の版と同じ端末に入れると上書きになる）。
+
+配布用の証明書は、チームで作れる数に上限がある。既存の証明書をむやみに失効させない。
+
 ## 実機確認表
 
 すべて合成の時間割・テスト用の対象アプリで実施する。時刻入力は日本時間、shield の表示時刻は端末時間。
