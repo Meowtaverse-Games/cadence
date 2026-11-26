@@ -151,10 +151,10 @@ class EntranceMotionStateTest {
         assertEquals(RowMotion(), state.motion("b"))
         state.observe(current, scope)
         state.releaseAfterIdleFrame(state.suppression.generation, false)
-        current = frame(state, "b", "c")
+        current = frame(state, "b", "c").copy(measurement = 1)
         assertEquals(RowMotion(), state.motion("c"))
         state.observe(current, scope)
-        current = frame(state, "c", "d")
+        current = frame(state, "c", "d").copy(measurement = 2)
         assertEquals(entranceMotion(0f), state.motion("d"))
     }
 
