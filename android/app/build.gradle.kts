@@ -2,6 +2,11 @@ plugins {
     alias(libs.plugins.android.application)
     // AGP 9 provides built-in Kotlin; the root JVM plugin pins the shared KGP version.
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services) apply false
+}
+
+if (file("google-services.json").isFile) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -39,6 +44,9 @@ kotlin {
 
 dependencies {
     implementation(project(":core"))
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
     implementation(libs.serialization.json)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -47,4 +55,5 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.mockito.core)
 }
