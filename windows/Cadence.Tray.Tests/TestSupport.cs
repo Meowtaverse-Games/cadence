@@ -10,6 +10,7 @@ internal sealed class FakeClock : TimeProvider
     public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-01-05T10:00:00Z");
     public override DateTimeOffset GetUtcNow() => Now;
     private readonly List<ManualTimer> timers = new();
+    public int PendingTimerCount { get { lock (timers) return timers.Count; } }
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         var timer = new ManualTimer(this, callback, state);

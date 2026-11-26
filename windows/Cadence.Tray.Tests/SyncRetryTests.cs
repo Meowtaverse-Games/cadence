@@ -330,11 +330,14 @@ public sealed class SyncRetryTests
         s.Http.Replies.Enqueue(_ => reply.Task);
         var periodic = s.Service.SyncAsync();
         Assert.True(s.Service.IsSynchronizing);
-        // This reservation must still be waiting, not cancelled by the periodic tick.
+        // Checking the live timer also distinguishes cancellation whose async
+        // continuation has not run yet from a reservation that is still waiting.
         Assert.False(pendingRetry.IsCompleted);
+        Assert.Equal(1, s.Clock.PendingTimerCount);
         s.Clock.Advance(TimeSpan.FromSeconds(10));
         await pendingRetry.WaitAsync(TimeSpan.FromSeconds(5));
         // The retry completed while the periodic fetch still holds the gate.
+        Assert.Equal(0, s.Clock.PendingTimerCount);
         Assert.False(periodic.IsCompleted);
         Assert.True(s.Service.IsSynchronizing);
         Assert.Equal(3, s.Http.Calls);
