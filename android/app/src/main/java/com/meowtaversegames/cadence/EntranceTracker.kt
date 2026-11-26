@@ -37,12 +37,19 @@ class EntranceTracker {
     private var generation: Long? = null
     private var measurement: Long? = null
     private var pendingMeasurement: Long? = null
+    private var available = false
     private val active = mutableSetOf<String>()
     val activeKeys: Set<String> get() = active.toSet()
 
     fun completed(key: String) { active.remove(key) }
 
-    fun observe(frame: EntranceFrame): EntranceChanges {
+    private data class Transition(val changes: EntranceChanges, val pendingMeasurement: Long?)
+
+    /** Read-only prediction used by graphicsLayer before the visibility collector runs. */
+    fun preview(frame: EntranceFrame): EntranceChanges = transition(frame).changes
+
+    private fun transition(frame: EntranceFrame): Transition {
+        var pendingMeasurement = this.pendingMeasurement
         val orderChanged = orderedKeys != null && orderedKeys != frame.orderedKeys
         val generationChanged = generation != frame.generation
         // A new item provider may precede its measurement. Suppress that measurement once,
@@ -50,7 +57,7 @@ class EntranceTracker {
         if (orderChanged || generationChanged) {
             pendingMeasurement = frame.measurement.takeIf { it == measurement }
         }
-        val reset = previous == null || orderChanged || generationChanged || pendingMeasurement != null
+        val reset = previous == null || !available || orderChanged || generationChanged || pendingMeasurement != null
         if (pendingMeasurement != null &&
             (pendingMeasurement != frame.measurement || (!frame.suppressed && !frame.scrolling))) {
             pendingMeasurement = null
@@ -59,12 +66,20 @@ class EntranceTracker {
         val clearAll = reset || !frame.enabled || frame.suppressed
         val start = enteringKeys(previous, frame.rows, frame.scrolling, frame.enabled, frame.suppressed, reset)
         val remove = active - current
-        if (clearAll) active.clear() else active.removeAll(remove)
-        active.addAll(start)
+        return Transition(EntranceChanges(start, remove, clearAll), pendingMeasurement)
+    }
+
+    fun observe(frame: EntranceFrame): EntranceChanges {
+        val (changes, pending) = transition(frame)
+        pendingMeasurement = pending
+        if (changes.clearAll) active.clear() else active.removeAll(changes.remove)
+        active.addAll(changes.start)
+        val current = frame.rows.mapTo(mutableSetOf()) { it.key }
         previous = current
         orderedKeys = frame.orderedKeys.toList()
         generation = frame.generation
         measurement = frame.measurement
-        return EntranceChanges(start, remove, clearAll)
+        available = frame.enabled && !frame.suppressed
+        return changes
     }
 }

@@ -122,4 +122,40 @@ class EntranceMotionStateTest {
         assertTrue(state.suppressed)
         assertEquals(IdleRelease.RELEASE, state.releaseAfterIdleFrame(state.suppression.generation, false))
     }
+    @Test fun drawingBeforeCollectionAndAfterCollectionUsesTheSameStartPose() = withState { state, scope, _ ->
+        var current = frame(state, "a", "b")
+        state.readFrame = { current }
+        assertEquals(entranceMotion(0f), state.motion("b"))
+        assertEquals(RowMotion(), state.motion("a"))
+        state.observe(current, scope)
+        assertEquals(entranceMotion(0f), state.motion("b"))
+        current = frame(state, "c")
+        state.observe(current, scope)
+        current = frame(state, "b")
+        assertEquals(entranceMotion(0f), state.motion("b"))
+        state.observe(current, scope)
+        assertEquals(entranceMotion(0f), state.motion("b"))
+    }
+
+    @Test fun drawingARebuildIgnoresOldAnimationsBeforeCollection() = withState { state, scope, _ ->
+        state.observe(frame(state, "b"), scope)
+        state.readFrame = { frame(state, "b", "c").copy(orderedKeys = keys.reversed()) }
+        assertEquals(RowMotion(), state.motion("b"))
+        assertEquals(RowMotion(), state.motion("c"))
+    }
+
+    @Test fun drawingAfterSuppressionReleaseBaselinesBeforeRestarting() = withState { state, scope, _ ->
+        state.suppress()
+        var current = frame(state, "b")
+        state.readFrame = { current }
+        assertEquals(RowMotion(), state.motion("b"))
+        state.observe(current, scope)
+        state.releaseAfterIdleFrame(state.suppression.generation, false)
+        current = frame(state, "b", "c")
+        assertEquals(RowMotion(), state.motion("c"))
+        state.observe(current, scope)
+        current = frame(state, "c", "d")
+        assertEquals(entranceMotion(0f), state.motion("d"))
+    }
+
 }

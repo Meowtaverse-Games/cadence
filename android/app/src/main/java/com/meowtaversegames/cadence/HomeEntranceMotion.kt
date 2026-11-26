@@ -29,6 +29,7 @@ class EntranceMotionState {
     private val jobs = mutableMapOf<String, Job>()
     private val tracker = EntranceTracker()
     val suppressed: Boolean get() = suppression.suppressed
+    internal var readFrame: (() -> EntranceFrame)? = null
 
     fun configure(enabled: Boolean, homeRequest: Int) {
         this.enabled = enabled
@@ -50,8 +51,15 @@ class EntranceMotionState {
         return result
     }
 
-    fun motion(key: String): RowMotion =
-        if (!enabled || suppressed) RowMotion() else entranceMotion(animations[key]?.value ?: 1f)
+    fun motion(key: String): RowMotion {
+        if (!enabled || suppressed) return RowMotion()
+        // Read layout snapshots only in the layer, never from row composition. Prediction
+        // shares the collector's transition without consuming visibility or starting jobs.
+        val changes = readFrame?.invoke()?.let(tracker::preview)
+        if (changes?.clearAll == true) return RowMotion()
+        val initialProgress = if (key in changes?.start.orEmpty()) 0f else 1f
+        return entranceMotion(animations[key]?.value ?: initialProgress)
+    }
 
     private fun remove(key: String) {
         // Remove ownership before cancelling; an old job must not remove a returning row.
@@ -93,32 +101,52 @@ class EntranceMotionState {
 
 private data class EntranceObservation(val info: LazyListLayoutInfo, val frame: EntranceFrame)
 
+/** Both drawing and collection assign the same measurement to the same layout snapshot. */
+private class EntranceLayoutReader(
+    private val listState: LazyListState,
+    private val state: EntranceMotionState,
+    private val keys: State<List<String>>,
+    private val eligible: State<Set<String>>,
+) {
+    private var lastInfo: LazyListLayoutInfo? = null
+    private var measurement = 0L
+
+    fun read(): EntranceObservation {
+        val info = listState.layoutInfo
+        val rows = info.visibleItemsInfo.filter {
+            it.size > 0 && it.offset < info.viewportEndOffset &&
+                it.offset.toLong() + it.size > info.viewportStartOffset && it.key in eligible.value
+        }.map { EntranceRow(it.key as String, it.offset) }
+        return EntranceObservation(info, EntranceFrame(rows, keys.value, listState.isScrollInProgress,
+            state.enabled, state.suppressed, state.suppression.generation,
+            if (info !== lastInfo) measurement + 1 else measurement))
+    }
+
+    fun accept(observation: EntranceObservation) {
+        lastInfo = observation.info
+        measurement = observation.frame.measurement
+    }
+}
+
 @Composable
 fun rememberEntranceMotion(listState: LazyListState, items: List<HomeItem>, enabled: Boolean,
     homeRequest: Int): EntranceMotionState {
     val state = remember(listState) { EntranceMotionState() }
     val keys = rememberUpdatedState(items.map { it.key })
     val eligible = rememberUpdatedState(items.filter { it !is HomeItem.Widget && it.key != "header" }.map { it.key }.toSet())
-    SideEffect { state.configure(enabled, homeRequest) }
+    val reader = remember(listState, state) { EntranceLayoutReader(listState, state, keys, eligible) }
+    SideEffect {
+        state.readFrame = { reader.read().frame }
+        state.configure(enabled, homeRequest)
+    }
 
     // One collector for the screen lifetime. HOME only advances the observed generation.
     LaunchedEffect(listState, state) {
         coroutineScope {
-            var lastInfo: LazyListLayoutInfo? = null
-            var measurement = 0L
             try {
-                snapshotFlow {
-                    val info = listState.layoutInfo
-                    val rows = info.visibleItemsInfo.filter {
-                        it.size > 0 && it.offset < info.viewportEndOffset &&
-                            it.offset.toLong() + it.size > info.viewportStartOffset && it.key in eligible.value
-                    }.map { EntranceRow(it.key as String, it.offset) }
-                    EntranceObservation(info, EntranceFrame(rows, keys.value, listState.isScrollInProgress,
-                        state.enabled, state.suppressed, state.suppression.generation))
-                }.collect { observation ->
-                    if (observation.info !== lastInfo) measurement++
-                    lastInfo = observation.info
-                    state.observe(observation.frame.copy(measurement = measurement), this)
+                snapshotFlow { reader.read() }.collect { observation ->
+                    reader.accept(observation)
+                    state.observe(observation.frame, this)
                 }
             } finally {
                 state.clear()

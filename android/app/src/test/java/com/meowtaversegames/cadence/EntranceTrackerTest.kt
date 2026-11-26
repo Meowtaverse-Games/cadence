@@ -171,4 +171,58 @@ class EntranceTrackerTest {
         assertEquals(listOf(keys[1], keys[2]), returning.start)
         assertEquals(setOf(keys[3], keys[4]), returning.remove)
     }
+    private fun assertFirstFrame(tracker: EntranceTracker, frame: EntranceFrame, key: String, progress: Float) {
+        val prediction = tracker.preview(frame)
+        assertEquals(progress, if (key in prediction.start) 0f else 1f, 0f)
+        // Drawing more than once must not consume the transition.
+        assertEquals(prediction, tracker.preview(frame))
+        assertEquals(prediction, tracker.observe(frame))
+    }
+
+    @Test fun firstDrawStartsAtZeroOnScrollAndOnReturnAfterCompletion() {
+        val tracker = EntranceTracker()
+        assertFirstFrame(tracker, frame(0, 1, scrolling = false), keys[1], 1f)
+        assertFirstFrame(tracker, frame(1, 2, measurement = 2), keys[2], 0f)
+        tracker.completed(keys[2])
+        assertFirstFrame(tracker, frame(2, 3, measurement = 3), keys[2], 1f)
+        assertFirstFrame(tracker, frame(3, 4, measurement = 4), keys[4], 0f)
+        assertFirstFrame(tracker, frame(2, 3, measurement = 5), keys[2], 0f)
+    }
+
+    @Test fun firstDrawDuringJumpsAndImmediatelyAfterReleaseIsIdentity() {
+        val tracker = EntranceTracker()
+        var gate = EntranceSuppression(suppressed = false)
+        tracker.observe(frame(0, 1, scrolling = false))
+        // HOME, index and search input/clear each establish a new generation.
+        for (start in listOf(0, 50, 10, 0)) {
+            gate = gate.request()
+            assertFirstFrame(tracker, frame(start, start + 1, gate = gate), keys[start + 1], 1f)
+            gate = gate.afterIdleFrame(gate.generation, false)
+            // Even if scrolling resumed before the collector saw the release, baseline once.
+            assertFirstFrame(tracker, frame(start + 1, start + 2, gate = gate, measurement = 2), keys[start + 2], 1f)
+            assertFirstFrame(tracker, frame(start + 2, start + 3, gate = gate, measurement = 3), keys[start + 3], 0f)
+        }
+    }
+
+    @Test fun firstDrawOfRebuildAndItsDelayedMeasurementIsIdentity() {
+        val tracker = EntranceTracker()
+        tracker.observe(frame(0, 1))
+        val order = keys.reversed()
+        assertFirstFrame(tracker, frame(0, 1, order = order), keys[1], 1f)
+        assertFirstFrame(tracker, frame(10, 11, order = order, measurement = 2), keys[11], 1f)
+        assertFirstFrame(tracker, frame(11, 12, order = order, measurement = 3), keys[12], 0f)
+    }
+
+    @Test fun firstDrawWhileDisabledAndOnPageArrivalNeverHidesRows() {
+        val tracker = EntranceTracker()
+        assertFirstFrame(tracker, frame(0, 1), keys[1], 1f)
+        repeat(3) { // Theme none, animator scale zero, and horizontal paging use the same gate.
+            assertFirstFrame(tracker, frame(10, 11, enabled = false), keys[11], 1f)
+            assertFirstFrame(tracker, frame(11, 12), keys[12], 1f)
+            assertFirstFrame(tracker, frame(12, 13, measurement = 2), keys[13], 0f)
+        }
+        assertFirstFrame(tracker, frame(20, 21, scrolling = false, measurement = 3), keys[21], 1f)
+        assertFirstFrame(tracker, frame(21, 22, measurement = 4), keys[22], 0f)
+    }
+
 }
