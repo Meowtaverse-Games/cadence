@@ -174,7 +174,8 @@ public sealed class ConfigurationTests : IDisposable
         Assert.Equal(cache.FetchedAt, service.State.LastSync);
         Assert.True(TimetableExpander.IsBlockedAt(service.State.Timetable!, DateTimeOffset.Parse("2026-01-05T10:15:00Z")));
         Assert.Equal(cacheBytes, File.ReadAllBytes(files.PathFor("timetable.json")));
-        Assert.Equal(new[] { invalidJson ? "config_invalid_json" : "config_missing", "config_ready" }, logs);
+        Assert.Equal(new[] { invalidJson ? "config_invalid_json" : "config_missing", "config_ready",
+            "sync_failed reason=http_503", "sync_retry_scheduled" }, logs);
     }
 
     [Fact]

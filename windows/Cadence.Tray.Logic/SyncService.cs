@@ -248,15 +248,17 @@ public sealed class SyncService : IDisposable
         catch (FirebaseFailure failure) when (failure.RequiresSignIn)
         {
             transientFailures = 0;
+            log("sync_failed reason=http_" + (int)failure.Status);
             RequireSignIn();
         }
         catch (FirebaseFailure failure) when (IsTransient(failure.Status))
         {
             return TransientFailure("http_" + (int)failure.Status);
         }
-        catch (FirebaseFailure)
+        catch (FirebaseFailure failure)
         {
             transientFailures = 0;
+            log("sync_failed reason=http_" + (int)failure.Status);
             State.SetProblem("認証の設定を確認してください（次の周期で再試行）");
             log("token_refresh_failed");
         }
