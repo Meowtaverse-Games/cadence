@@ -1,15 +1,19 @@
 package com.meowtaversegames.cadence
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -87,15 +92,29 @@ fun HomeScreen(
     onAddWidget: () -> Unit = {},
     widgetAddReason: String? = null,
     favoritesFailed: Boolean = false,
+    categories: List<HomeCategory> = emptyList(),
+    categoriesFailed: Boolean = false,
+    onCategories: (List<HomeCategory>) -> Unit = {},
 ) {
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
+    var menuCategory by remember(homeRequest) { mutableStateOf<String?>(null) }
+    var membership by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
+    val pager = rememberHomePager(categories.map { it.id }, homeRequest)
+    val pageCount = categories.size + 1
+    val realPage = realHomePage(pager.currentPage, pageCount)
+    val scope = rememberCoroutineScope()
+    val categoryLists = remember { mutableMapOf<String, LazyListState>() }
+    SideEffect { categoryLists.keys.retainAll(categories.map { it.id }.toSet()) }
+    var searchFocused by remember { mutableStateOf(false) }
+    var indexing by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed) {
         homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
     }
     val motionState = rememberEntranceMotion(listState, layout.items,
-        scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f, homeRequest)
+        scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f &&
+            (query.isNotEmpty() || (realPage == 0 && !pager.isScrollInProgress)), homeRequest)
     fun jumpTo(position: Int) {
         motionState.suppress()
         listState.requestScrollToItem(position)
@@ -105,11 +124,17 @@ fun HomeScreen(
         jumpTo(0)
     }
     LaunchedEffect(homeRequest) { focus.clearFocus(); keyboard?.hide() }
-    BackHandler(enabled = consumesHomeBack(query.isNotEmpty(), defaultHome)) {
+    BackHandler(enabled = consumesHomeBack(query.isNotEmpty(), defaultHome, realPage != 0)) {
         if (query.isNotEmpty()) closeSearch()
+        else if (realPage != 0) scope.launch {
+            pager.animateScrollToPage(nearestHomePage(pager.currentPage, 0, pageCount))
+        }
     }
     val apps = snapshot.apps
-    LaunchedEffect(apps) { if (menu?.id !in apps.map { it.id }) menu = null }
+    LaunchedEffect(apps) {
+        if (menu?.id !in apps.map { it.id }) menu = null
+        if (membership?.id !in apps.map { it.id }) membership = null
+    }
     val visibleFavoriteIds = visibleFavorites(favorites, apps).map { it.id }
     val colors = LocalHomeColors.current
     fun changeQuery(value: String) {
@@ -118,33 +143,18 @@ fun HomeScreen(
         if (value.isEmpty()) { focus.clearFocus(); keyboard?.hide() }
     }
     fun launchFirst() { firstSearchResult(query, layout.items)?.let(onLaunch) }
-    Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
-        Row(Modifier.weight(1f)) {
+    val standardContent: @Composable () -> Unit = {
+        Row(Modifier.fillMaxSize()) {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxHeight(),
                 contentPadding = PaddingValues(start = 24.dp, end = 8.dp, top = 12.dp, bottom = 24.dp)) {
                 items(layout.items, key = { it.key }) { item ->
                     val moving = item !is HomeItem.Widget && item.key != "header"
-                    val rowModifier = if (!moving) Modifier else Modifier.graphicsLayer {
-                        if (!motionState.enabled || motionState.suppressed) {
-                            translationX = 0f; translationY = 0f
-                            scaleX = 1f; scaleY = 1f
-                            alpha = 1f; rotationZ = 0f
-                            return@graphicsLayer
-                        }
-                        // Read key state and progress only at draw time; no per-frame recomposition.
-                        val motion = motionState.motion(item.key)
-                        translationX = this.size.width * motion.translationXFraction
-                        translationY = this.size.height * motion.translationYFraction
-                        scaleX = motion.scale; scaleY = motion.scale
-                        alpha = motion.alpha
-                        rotationZ = motion.rotation
-                        transformOrigin = TransformOrigin(0f, 1f)
-                    }
+                    val rowModifier = if (!moving) Modifier else Modifier.homeEntranceMotion(motionState, item.key)
                     Box(rowModifier.fillMaxWidth()) {
                         when (item) {
                             is HomeItem.Widget -> widgetContent(item.widget)
                             is HomeItem.App -> AppRow(item.entry, snapshot.icons[item.entry.id], size,
-                                { onLaunch(item.entry) }, { menu = item.entry })
+                                { onLaunch(item.entry) }, { menuCategory = null; menu = item.entry })
                             is HomeItem.Heading -> Text(item.section.heading, Modifier.padding(vertical = 12.dp),
                                 style = MaterialTheme.typography.labelLarge)
                             is HomeItem.Fixed -> when (item.key) {
@@ -159,12 +169,49 @@ fun HomeScreen(
                     }
                 }
             }
-            SectionIndex(layout.index, Modifier.fillMaxHeight().width(44.dp)) { index ->
+            SectionIndex(layout.index, Modifier.fillMaxHeight().width(44.dp), { indexing = it }) { index ->
                 jumpTo(layout.index[index].position)
             }
         }
+    }
+    Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
+        Box(Modifier.weight(1f)) {
+            if (query.isNotEmpty()) standardContent()
+            else HorizontalPager(state = pager, userScrollEnabled = pageCount > 1 && !indexing && !searchFocused,
+                modifier = Modifier.fillMaxSize()) { virtualPage ->
+                val page = realHomePage(virtualPage, pageCount)
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    val motion = homePageMotion((pager.currentPage - virtualPage) + pager.currentPageOffsetFraction, animatorScale)
+                    scaleX = motion.scale; scaleY = motion.scale; alpha = motion.alpha
+                }) {
+                    if (page == 0) standardContent()
+                    else categories.getOrNull(page - 1)?.let { category ->
+                        val categoryList = remember(category.id) { categoryLists.getOrPut(category.id) { LazyListState() } }
+                        CategoryPage(category, snapshot, categoryList, presentation, size,
+                            presentation.resting != null && category.appIds.any {
+                                it in installedIds.orEmpty() && it.substringBefore('/') in targets
+                            },
+                            scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f &&
+                                pager.currentPage == virtualPage && !pager.isScrollInProgress,
+                            homeRequest, onLaunch, { menuCategory = category.id; menu = it },
+                            onSettings, onOpenClock, onOpenCalendar, onAddWidget, widgetAddReason)
+                    }
+                }
+            }
+        }
+        if (pageCount > 1) {
+            val pageName = categories.getOrNull(realPage - 1)?.name ?: "ホーム"
+            Row(Modifier.align(Alignment.CenterHorizontally).horizontalScroll(rememberScrollState())
+                .padding(top = 6.dp).semantics { contentDescription = "ページ ${realPage + 1} / $pageCount、$pageName" },
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(pageCount) { page ->
+                    Box(Modifier.size(6.dp).background(if (page == realPage) colors.accent else colors.text.copy(alpha = 0.4f), CircleShape))
+                }
+            }
+        }
         OutlinedTextField(value = query, onValueChange = ::changeQuery,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                .onFocusChanged { searchFocused = it.isFocused }, singleLine = true,
             shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = colors.plate,
                 unfocusedContainerColor = colors.plate),
@@ -184,7 +231,23 @@ fun HomeScreen(
                         onFavorites(if (isFavorite) removeFavorite(favorites, app.id) else addFavorite(favorites, app.id, installedIds))
                         menu = null
                     }) { Text(if (isFavorite) "お気に入りから外す" else if (!inventoryReady) "一覧の読み込み後に追加できます" else "お気に入りに追加") }
-                    if (isFavorite) {
+                    TextButton(enabled = !categoriesFailed, onClick = { membership = app; menu = null }) { Text("カテゴリに入れる…") }
+                    val category = categories.firstOrNull { it.id == menuCategory }
+                    if (category != null) {
+                        val visibleIds = visibleFavorites(category.appIds, apps).map { it.id }
+                        listOf(-1 to "上へ", 1 to "下へ").forEach { (direction, label) ->
+                            TextButton(enabled = !categoriesFailed && canMoveFavorite(visibleIds, app.id, direction), onClick = {
+                                onCategories(updateCategory(categories, category.id) {
+                                    it.copy(appIds = moveVisibleFavorite(it.appIds, visibleIds, app.id, direction))
+                                }); menu = null
+                            }) { Text(label) }
+                        }
+                        TextButton(enabled = !categoriesFailed, onClick = {
+                            onCategories(updateCategory(categories, category.id) { it.copy(appIds = removeFavorite(it.appIds, app.id)) })
+                            menu = null
+                        }) { Text("このカテゴリから外す") }
+                    }
+                    if (isFavorite && category == null) {
                         TextButton(enabled = canMoveFavorite(visibleFavoriteIds, app.id, -1), onClick = {
                             onFavorites(moveVisibleFavorite(favorites, visibleFavoriteIds, app.id, -1)); menu = null
                         }) { Text("上へ") }
@@ -201,11 +264,15 @@ fun HomeScreen(
             }, confirmButton = { TextButton(onClick = { menu = null }) { Text("閉じる") } })
       }
     }
+    membership?.let { app -> CadenceTheme {
+        CategoryMembershipDialog(app, categories, installedIds.takeUnless { inventoryFailed }, categoriesFailed,
+            onCategories, { membership = null })
+    } }
 }
 
 @Composable
-private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, onOpenClock: () -> Unit,
-    onOpenCalendar: () -> Unit, onAddWidget: () -> Unit, addReason: String?) {
+internal fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, onOpenClock: () -> Unit,
+    onOpenCalendar: () -> Unit, onAddWidget: () -> Unit, addReason: String?, compact: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     if (menu) CadenceTheme {
         AlertDialog(onDismissRequest = { menu = false }, text = {
@@ -218,13 +285,22 @@ private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, o
     Column(Modifier.fillMaxWidth().pointerInput(Unit) {
         detectTapGestures(onLongPress = { menu = true })
     }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (!compact) Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CADENCE", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, letterSpacing = 4.sp)
             SettingsGear(onSettings)
         }
         val localTime = presentation.now.atZone(ZoneId.systemDefault())
         val time = DateTimeFormatter.ofPattern("HH:mm").format(localTime)
         val date = DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.JAPANESE).format(localTime)
+        if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(time, Modifier.heightIn(min = 48.dp).wrapContentHeight().combinedClickable(
+                onClick = onOpenClock, onLongClick = { menu = true }, onLongClickLabel = "ウィジェットを追加"))
+            Text("· ${localTime.monthValue}/${localTime.dayOfMonth} ·", Modifier.heightIn(min = 48.dp).wrapContentHeight()
+                .combinedClickable(onClick = onOpenCalendar, onLongClick = { menu = true }, onLongClickLabel = "ウィジェットを追加")
+                .semantics { contentDescription = "$date、カレンダーを開く" })
+            Text(presentation.status, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall)
+        } else {
         Text(time, Modifier.combinedClickable(onClick = onOpenClock, onLongClick = { menu = true },
             onLongClickLabel = "ウィジェットを追加").semantics(mergeDescendants = true) {
                 contentDescription = "$time、時計を開く"
@@ -235,6 +311,7 @@ private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, o
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(colors.accent, CircleShape))
             Text(presentation.status, style = MaterialTheme.typography.titleMedium)
+        }
         }
         if (presentation.warnings.isNotEmpty()) {
             val first = presentation.warnings.first()
@@ -253,7 +330,7 @@ private fun HomeHeader(presentation: HomePresentation, onSettings: () -> Unit, o
 }
 
 @Composable
-private fun AppRow(app: AppEntry, icon: ImageBitmap?, size: HomeSize, onClick: () -> Unit, onLongClick: () -> Unit) {
+internal fun AppRow(app: AppEntry, icon: ImageBitmap?, size: HomeSize, onClick: () -> Unit, onLongClick: () -> Unit) {
     val colors = LocalHomeColors.current
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick,
         onLongClickLabel = "アプリのメニュー").heightIn(min = size.rowDp.dp).padding(vertical = 10.dp),
@@ -268,11 +345,13 @@ private fun AppRow(app: AppEntry, icon: ImageBitmap?, size: HomeSize, onClick: (
 }
 
 @Composable
-private fun SectionIndex(entries: List<HomeIndexEntry>, modifier: Modifier, onSelect: (Int) -> Unit) {
+private fun SectionIndex(entries: List<HomeIndexEntry>, modifier: Modifier, onTouch: (Boolean) -> Unit, onSelect: (Int) -> Unit) {
     var height by remember { mutableIntStateOf(1) }
     var selected by remember(entries) { mutableStateOf<Int?>(null) }
     var fingerY by remember { mutableFloatStateOf(0f) }
     val currentSelect by rememberUpdatedState(onSelect)
+    val currentTouch by rememberUpdatedState(onTouch)
+    DisposableEffect(Unit) { onDispose { currentTouch(false) } }
     val colors = LocalHomeColors.current
     val bubbleHeight = with(LocalDensity.current) { 56.dp.toPx() }
     val bubbleWidth = with(LocalDensity.current) { 104.dp.toPx() }
@@ -284,9 +363,21 @@ private fun SectionIndex(entries: List<HomeIndexEntry>, modifier: Modifier, onSe
     Box(modifier.onSizeChanged { height = it.height.coerceAtLeast(1) }
         .semantics { contentDescription = "アプリの頭文字索引" }
         .pointerInput(entries, height) {
-            detectDragGestures(onDragStart = { select(it.y) },
-                onDragEnd = { selected = null }, onDragCancel = { selected = null },
-                onDrag = { change, _ -> change.consume(); select(change.position.y) })
+            // Own all movement on the index in the Initial pass, before the pager sees it.
+            // The enabled gate also prevents a pager drag from starting between frames.
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                currentTouch(true)
+                select(down.position.y)
+                try {
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        event.changes.forEach { change ->
+                            if (change.pressed) { change.consume(); select(change.position.y) }
+                        }
+                    } while (event.changes.any { it.pressed })
+                } finally { selected = null; currentTouch(false) }
+            }
         }) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             entries.forEachIndexed { index, entry ->

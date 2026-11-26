@@ -23,7 +23,7 @@ class CadenceWidgetHost(context: Context, private val changed: () -> Unit, priva
     override fun onProvidersChanged() { changed() }
 }
 
-/** Child clicks work normally. Vertical drags always remain available to the home LazyColumn. */
+/** Child clicks work normally. Vertical and horizontal drags remain available to the home list and pager. */
 class CadenceWidgetView(context: Context, private val log: () -> Unit) : AppWidgetHostView(context) {
     var onHold: () -> Unit = {}
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -69,7 +69,7 @@ class CadenceWidgetView(context: Context, private val log: () -> Unit) : AppWidg
         return true
     }
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        // RemoteViews ListViews may request this on DOWN, before slop is crossed.
+        // RemoteViews may request this on DOWN. Keep both home scroll axes available.
         super.requestDisallowInterceptTouchEvent(false)
     }
     override fun onDetachedFromWindow() {

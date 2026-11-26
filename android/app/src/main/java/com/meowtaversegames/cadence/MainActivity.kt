@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var repository: LauncherRepository
     private var snapshot by mutableStateOf(LauncherSnapshot())
     private var favorites by mutableStateOf(emptyList<String>())
+    private var categories by mutableStateOf(emptyList<HomeCategory>())
+    private var categoriesFailed by mutableStateOf(false)
     private var favoritesFailed by mutableStateOf(false)
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private var error by mutableStateOf<String?>(null)
@@ -60,7 +62,7 @@ class MainActivity : ComponentActivity() {
         widgets = WidgetController(this, runtime, savedInstanceState) { error = it }
         if (savedInstanceState == null && intent.action == ACTION_ADD_WIDGET) widgets.openPicker()
         query = savedInstanceState?.getString("query").orEmpty()
-        repository = LauncherRepository(this, onPackageRemoved = { removePackageFavorites(it); widgets.packageRemoved(it) }) {
+        repository = LauncherRepository(this, onPackageRemoved = { removePackageFavorites(it); removePackageCategories(it); widgets.packageRemoved(it) }) {
             if (it.failed) {
                 snapshot = snapshot.copy(failed = true) // Retain the last successful inventory.
                 error = "アプリの一覧を読み込めませんでした"
@@ -101,6 +103,7 @@ class MainActivity : ComponentActivity() {
                     if (runtime.readFailed) add("設定を読み込めません")
                     if (widgets.failed) add("ウィジェットを読み込めません")
                     if (favoritesFailed) add("お気に入りを読み込めません")
+                    if (categoriesFailed) add("カテゴリを読み込めません")
                 }
                 val visibleSnapshot = remember(snapshot, runtime.targets, blocked) {
                     snapshot.copy(sections = snapshot.sections.mapNotNull { section ->
@@ -131,6 +134,7 @@ class MainActivity : ComponentActivity() {
                         HostedWidget(widget, info, widgets, visibleWidgets.map { it.id }) { runtime.store.log("widget_create_failed") }
                     } },
                     onAddWidget = widgets::openPicker, widgetAddReason = widgets.addReason,
+                    categories = categories, categoriesFailed = categoriesFailed, onCategories = ::saveCategories,
                 )
                 if (widgets.picker) WidgetPicker(runtime.targets, blocked, widgets.pending == null, widgets::add, { widgets.picker = false })
                 error?.let { message ->
@@ -151,6 +155,9 @@ class MainActivity : ComponentActivity() {
         val stored = runtime.store.readFavorites()
         favorites = stored.value.orEmpty()
         favoritesFailed = stored.failed
+        val storedCategories = runtime.store.categories.read()
+        categories = storedCategories.value.orEmpty()
+        categoriesFailed = storedCategories.failed
         themeSettings = runtime.store.homeTheme.read().value ?: HomeThemeSettings()
         refreshAnimatorScale()
         wallpaperObserver.refresh()
@@ -238,6 +245,24 @@ class MainActivity : ComponentActivity() {
         val ids = stored.value.orEmpty()
         val next = removePackageFavorites(ids, packageName)
         if (next != ids) saveFavorites(next)
+    }
+
+    private fun removePackageCategories(packageName: String) {
+        val stored = runtime.store.categories.read()
+        if (stored.failed) return
+        val previous = stored.value.orEmpty()
+        val next = removePackageCategories(previous, packageName)
+        if (next != previous) saveCategories(next)
+    }
+
+    private fun saveCategories(value: List<HomeCategory>) {
+        try {
+            runtime.store.categories.save(value)
+            categories = value
+            categoriesFailed = false
+        } catch (_: Exception) {
+            error = "カテゴリを保存できませんでした。読み込めないファイルは保護されています"
+        }
     }
 
     private fun saveFavorites(ids: List<String>) {
