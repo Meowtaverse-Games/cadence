@@ -41,7 +41,7 @@ internal sealed class TrayContext : ApplicationContext
         configuration = FirebaseConfig.Load(files.PathFor("cadence-firebase.json"), directlyUnderAppDataPath);
         log.Write(configuration.Code);
         service = new(configuration.Config is { } config ? new FirebaseClient(config, clock, new HttpClientHandler()) : null,
-            new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write);
+            new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write, shutdown: shutdown.Token);
         openSettingsOnStartup = StartupSettings.ShouldOpen(configuration.Usable, service.HasSavedSession);
         var menu = new ContextMenuStrip();
         menu.Items.Add(stateMenu);
@@ -52,7 +52,7 @@ internal sealed class TrayContext : ApplicationContext
         tray.DoubleClick += (_, _) => OpenSettings();
         monitor = new(clock, log, Notify);
         updates = new(() => new AppUpdater(), AppUpdater.BuildVersion, clock,
-            () => !syncing && settingsOperations == 0 && UpdatePolicy.CanRestart(service.State.Timetable, clock, settings is not null && !settings.IsDisposed),
+            () => !syncing && !service.IsSynchronizing && settingsOperations == 0 && UpdatePolicy.CanRestart(service.State.Timetable, clock, settings is not null && !settings.IsDisposed),
             log.Write, UpdateDisplay, visible => tray.Visible = visible);
         updateTimer.Tick += async (_, _) => await updates.TickAsync(false, shutdown.Token);
         blockTimer.Tick += async (_, _) =>
@@ -103,7 +103,7 @@ internal sealed class TrayContext : ApplicationContext
         syncing = true;
         try { await service.SyncAsync(shutdown.Token); }
         catch (OperationCanceledException) { }
-        catch { log.Write("sync_failed"); }
+        catch (Exception failure) { log.Write("sync_failed reason=" + SyncService.FailureReason(failure)); }
         finally
         {
             syncing = false;

@@ -73,15 +73,13 @@ jobs:
         run: |
           # Only an empty stable Windows release history is a first release.
           # API/network/download errors must fail instead of silently losing deltas.
-          $releases = @()
-          $page = 1
-          do {
-            $batch = @(Invoke-RestMethod "https://api.github.com/repos/Meowtaverse-Games/cadence/releases?per_page=100&page=$page" -Headers @{ 'User-Agent' = 'Cadence-release-ci'; Authorization = "Bearer $env:GITHUB_TOKEN" })
-            $releases += $batch
-            $page++
-          } while ($batch.Count -eq 100)
-          $previous = @($releases | Where-Object { !$_.draft -and !$_.prerelease -and $_.tag_name -cmatch '^windows-v' -and $_.assets.name -contains 'releases.win.json' })
-          if ($previous.Count -gt 0) {
+          . ./scripts/WindowsReleaseHistory.ps1
+          $releases = @(Get-WindowsReleaseHistory -ReadPage {
+            param($page)
+            Invoke-RestMethod "https://api.github.com/repos/Meowtaverse-Games/cadence/releases?per_page=100&page=$page" -Headers @{ 'User-Agent' = 'Cadence-release-ci'; Authorization = "Bearer $env:GITHUB_TOKEN" } -ErrorAction Stop
+          })
+          $previous = Select-WindowsDeltaBase -Releases $releases
+          if ($null -ne $previous) {
             dotnet vpk download github --repoUrl https://github.com/Meowtaverse-Games/cadence --token "$env:GITHUB_TOKEN" --channel win --outputDir Releases
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {

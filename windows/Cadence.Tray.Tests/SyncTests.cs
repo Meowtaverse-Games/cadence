@@ -208,7 +208,8 @@ public sealed class SyncTests
         Assert.Equal("synthetic-next", sessions.Value!.RefreshToken);
         Assert.False(service.TakeAuthNotification());
         Assert.Same(previous, service.State.Timetable);
-        Assert.Contains(status == 0 ? "同期できません" : "認証の設定を確認してください", service.State.Problem);
+        if (status is 0 or 500) Assert.Null(service.State.Problem);
+        else Assert.Contains("認証の設定を確認してください", service.State.Problem);
         http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
         http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
         await service.SyncAsync();
@@ -232,7 +233,7 @@ public sealed class SyncTests
         await service.SyncAsync();
         Assert.Same(previous, service.State.Timetable);
         Assert.NotNull(service.Email);
-        Assert.Contains("再試行", service.State.Problem);
+        Assert.Null(service.State.Problem);
         http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
         await service.SyncAsync();
         Assert.Null(service.State.Problem);

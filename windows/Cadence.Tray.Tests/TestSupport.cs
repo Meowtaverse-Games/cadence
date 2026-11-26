@@ -9,6 +9,41 @@ internal sealed class FakeClock : TimeProvider
 {
     public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-01-05T10:00:00Z");
     public override DateTimeOffset GetUtcNow() => Now;
+    private readonly List<ManualTimer> timers = new();
+    public int PendingTimerCount { get { lock (timers) return timers.Count; } }
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new ManualTimer(this, callback, state);
+        lock (timers) timers.Add(timer);
+        timer.Change(dueTime, period);
+        return timer;
+    }
+    public void Advance(TimeSpan elapsed)
+    {
+        Now += elapsed;
+        ManualTimer[] pending;
+        lock (timers) pending = timers.ToArray();
+        foreach (var timer in pending) timer.Fire();
+    }
+    private sealed class ManualTimer(FakeClock clock, TimerCallback callback, object? state) : ITimer
+    {
+        private DateTimeOffset? due;
+        private TimeSpan period;
+        public bool Change(TimeSpan dueTime, TimeSpan interval)
+        {
+            due = dueTime == Timeout.InfiniteTimeSpan ? null : clock.Now + dueTime;
+            period = interval;
+            return true;
+        }
+        public void Fire()
+        {
+            if (due is null || due > clock.Now) return;
+            due = period == Timeout.InfiniteTimeSpan ? null : clock.Now + period;
+            callback(state);
+        }
+        public void Dispose() { lock (clock.timers) clock.timers.Remove(this); }
+        public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+    }
 }
 
 internal sealed class MemorySessions : ISessionStore
