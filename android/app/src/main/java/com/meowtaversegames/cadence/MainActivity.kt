@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val blocked = runtime.decision?.end != null
                 val warnings = buildList {
+                    runtime.sync.status.problem?.let { add(it) }
                     runtime.permissionState.missing().forEach { add("${it.label}が必要です") }
                     if (runtime.startFailed) add("ブロックを始められませんでした")
                     if (runtime.launchFailed) add("ブロック画面を出せませんでした")
