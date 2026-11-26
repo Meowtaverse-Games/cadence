@@ -34,6 +34,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.CollectionInfo
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.ScrollAxisRange
 import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.horizontalScrollAxisRange
@@ -127,6 +129,12 @@ fun HomeScreen(
         motionState.suppress()
         listState.requestScrollToItem(position)
     }
+    fun turnPage(direction: Int): Boolean {
+        if (indexing || searchFocused) return false
+        val destination = adjacentHomePage(pager.currentPage, direction, pageCount) ?: return false
+        scope.launch { pager.animateScrollToPage(destination) }
+        return true
+    }
     fun closeSearch() {
         onQueryChange(""); menu = null; focus.clearFocus(); keyboard?.hide()
         if (searching) jumpTo(0)
@@ -191,10 +199,18 @@ fun HomeScreen(
                     horizontalScrollAxisRange = ScrollAxisRange(
                         value = { realHomePage(pager.currentPage, pageCount).toFloat() },
                         maxValue = { (pageCount - 1).toFloat() })
-                    scrollToIndex { page ->
-                        if (page !in 0 until pageCount) false else {
-                            scope.launch { pager.animateScrollToPage(nearestHomePage(pager.currentPage, page, pageCount)) }
-                            true
+                    if (pageCount > 1) {
+                        if (!indexing && !searchFocused) {
+                            customActions = listOf(
+                                CustomAccessibilityAction("前のページ") { turnPage(-1) },
+                                CustomAccessibilityAction("次のページ") { turnPage(1) },
+                            )
+                        }
+                        scrollToIndex { page ->
+                            if (page !in 0 until pageCount) false else {
+                                scope.launch { pager.animateScrollToPage(nearestHomePage(pager.currentPage, page, pageCount)) }
+                                true
+                            }
                         }
                     }
                 }) { virtualPage ->

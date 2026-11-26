@@ -4,6 +4,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomePagingTest {
+    @Test fun accessibilityActionsWrapFromHomeBackAndLastCategoryForward() {
+        for (count in 2..5) {
+            val home = centeredHomePage(0, count)
+            val previous = requireNotNull(adjacentHomePage(home, -1, count))
+            assertEquals(home - 1, previous)
+            assertEquals(count - 1, realHomePage(previous, count))
+            val last = home + count - 1
+            val next = requireNotNull(adjacentHomePage(last, 1, count))
+            assertEquals(last + 1, next)
+            assertEquals(0, realHomePage(next, count))
+            // With two pages the destinations have the same real page but opposite directions.
+            assertEquals(home + 1, adjacentHomePage(home, 1, count))
+        }
+    }
+    @Test fun accessibilityActionsStayWithinFiniteVirtualBounds() {
+        for (count in 2..5) for (current in listOf(0, VIRTUAL_HOME_PAGES - 1)) {
+            for (direction in listOf(-1, 1)) {
+                val destination = requireNotNull(adjacentHomePage(current, direction, count))
+                assertTrue(destination in 0 until VIRTUAL_HOME_PAGES)
+                assertEquals(realHomePage(current + direction, count), realHomePage(destination, count))
+            }
+        }
+    }
+    @Test fun singlePageHasNoAccessibilityDestination() {
+        assertNull(adjacentHomePage(0, -1, 1))
+        assertNull(adjacentHomePage(0, 1, 1))
+    }
     @Test fun cyclesInBothDirectionsIncludingNegativeCoordinates() {
         assertEquals(listOf(2, 0, 1, 2, 0, 1, 2), (-4..2).map { realHomePage(it, 3) })
         assertEquals(0, realHomePage(Int.MIN_VALUE, 1))
