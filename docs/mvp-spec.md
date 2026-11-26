@@ -733,6 +733,9 @@ debug ビルドだけ、Firebase なしでブロックを確かめるため「�
   入れられる（アンインストールすると端末内の保存が消えるため）。secret が無い実行（fork からの PR など）では、
   その場で作った鍵で署名する。release の署名の鍵も、リポジトリに含めず、CI の secret に置く。GitHub Releases は Windows の自動更新専用なので使わない
   （Velopack は新しい順に 10 件の Release しか見ないため）。配り方と更新の方法は PR A4 で決める。
+  `google-services.json` を含む実機確認用の debug の APK は、公開リポジトリの CI では作らず、Codemagic の手動の
+  ワークフロー `android-firebase-debug` で作る（成果物は非公開。設定ファイルと debug の鍵は Codemagic の
+  Secret から復元し、GitHub Actions の debug の APK と同じ鍵で署名する）。手順は `docs/firebase-setup.md` の手順8。
 
 ## MVP の対象外
 
