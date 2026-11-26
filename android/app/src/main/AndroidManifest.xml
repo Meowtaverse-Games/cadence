@@ -21,10 +21,14 @@
         <intent><action android:name="android.intent.action.DIAL" /></intent>
     </queries>
     <application
+        android:name=".CadenceApplication"
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Initialize explicitly only when generated Firebase resources are present. -->
+        <provider android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider" tools:node="remove" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
             android:theme="@style/CadenceHome" android:windowSoftInputMode="adjustResize">
             <intent-filter>

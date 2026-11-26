@@ -22,6 +22,7 @@ internal fun clockText(time: Instant): String = DateTimeFormatter.ofPattern("HH:
 /** All entry points run on the process main thread; the service never recursively starts itself. */
 class BlockingRuntime private constructor(private val context: Context) {
     val store = LocalStore(context)
+    val sync by lazy { FirebaseSync(context, store, ::changed) }
     var decision by mutableStateOf<BlockingDecision?>(null)
         private set
     var targets by mutableStateOf<Set<String>>(emptySet())
@@ -188,6 +189,7 @@ class BlockingRuntime private constructor(private val context: Context) {
         private var instance: BlockingRuntime? = null
         fun get(context: Context): BlockingRuntime = instance ?: BlockingRuntime(context.applicationContext).also {
             instance = it
+            it.sync.start()
             it.store.log("permissions ${it.permissionState}")
         }
     }

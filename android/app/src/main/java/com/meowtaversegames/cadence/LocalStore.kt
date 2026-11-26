@@ -23,7 +23,8 @@ class LocalStore(context: Context) {
     fun readTimetable(): ReadValue<CachedTimetable> = timetable.read {
         val text = read("timetable.json")
         if (text == null) CachedTimetable(null) else {
-            CachedTimetable(requireNotNull(TimetableParser.parse(TimetableJson.decode(text)).timetable))
+            val content = TimetableJson.decode(text)
+            CachedTimetable(requireNotNull(TimetableParser.parse(content).timetable), content)
         }
     }
 
@@ -73,6 +74,12 @@ class LocalStore(context: Context) {
         write("timetable.json", TimetableJson.encode(value))
     }
 
+    fun readLastSync(): Instant? = try {
+        read("last-sync.txt")?.let(Instant::parse)
+    } catch (_: Exception) { null }
+
+    fun saveLastSync(value: Instant) = write("last-sync.txt", value.toString())
+
     private fun read(name: String): String? {
         val file = AtomicFile(File(directory, name))
         // AtomicFile may recover a backup even when its base file is missing.
@@ -106,4 +113,4 @@ class LocalStore(context: Context) {
         private val logWriter = Executors.newSingleThreadExecutor { task -> Thread(task, "cadence-log") }
     }
 }
-data class CachedTimetable(val timetable: Timetable?)
+data class CachedTimetable(val timetable: Timetable?, val content: TimetableValue? = null)
