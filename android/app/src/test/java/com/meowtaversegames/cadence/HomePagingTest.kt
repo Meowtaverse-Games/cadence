@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomePagingTest {
+    @Test fun indicatorOffersBothPagingActionsOnlyWithMultiplePages() {
+        for (count in 1..3) {
+            assertEquals(count > 1, homePageIndicatorActionsEnabled(count,
+                searching = false, indexing = false, searchFocused = false))
+        }
+    }
+    @Test fun indicatorPagingActionsAreUnavailableDuringSearchIndexingOrSearchFocus() {
+        for (count in 1..3) for (searching in listOf(false, true)) {
+            for (indexing in listOf(false, true)) for (focused in listOf(false, true)) {
+                if (searching || indexing || focused) {
+                    assertFalse(homePageIndicatorActionsEnabled(count, searching, indexing, focused))
+                }
+            }
+        }
+    }
     @Test fun accessibilityActionsWrapFromHomeBackAndLastCategoryForward() {
         for (count in 2..5) {
             val home = centeredHomePage(0, count)

@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.ScrollAxisRange
 import androidx.compose.ui.semantics.collectionInfo
@@ -130,7 +132,7 @@ fun HomeScreen(
         listState.requestScrollToItem(position)
     }
     fun turnPage(direction: Int): Boolean {
-        if (indexing || searchFocused) return false
+        if (!homePageIndicatorActionsEnabled(pageCount, searching, indexing, searchFocused)) return false
         val destination = adjacentHomePage(pager.currentPage, direction, pageCount) ?: return false
         scope.launch { pager.animateScrollToPage(destination) }
         return true
@@ -200,12 +202,6 @@ fun HomeScreen(
                         value = { realHomePage(pager.currentPage, pageCount).toFloat() },
                         maxValue = { (pageCount - 1).toFloat() })
                     if (pageCount > 1) {
-                        if (!indexing && !searchFocused) {
-                            customActions = listOf(
-                                CustomAccessibilityAction("前のページ") { turnPage(-1) },
-                                CustomAccessibilityAction("次のページ") { turnPage(1) },
-                            )
-                        }
                         scrollToIndex { page ->
                             if (page !in 0 until pageCount) false else {
                                 scope.launch { pager.animateScrollToPage(nearestHomePage(pager.currentPage, page, pageCount)) }
@@ -242,9 +238,20 @@ fun HomeScreen(
             }
         }
         if (pageCount > 1) {
-            val pageName = categories.getOrNull(realPage - 1)?.name ?: "ホーム"
+            // Announce only the settled page, not intermediate pages crossed by a drag.
+            val announcedPage = realHomePage(pager.settledPage, pageCount)
+            val pageName = categories.getOrNull(announcedPage - 1)?.name ?: "ホーム"
             Row(Modifier.align(Alignment.CenterHorizontally).horizontalScroll(rememberScrollState())
-                .padding(top = 6.dp).semantics { contentDescription = "ページ ${realPage + 1} / $pageCount、$pageName" },
+                .padding(top = 6.dp).semantics {
+                    contentDescription = "ページ ${announcedPage + 1} / $pageCount、$pageName"
+                    if (!searching) liveRegion = LiveRegionMode.Polite
+                    if (homePageIndicatorActionsEnabled(pageCount, searching, indexing, searchFocused)) {
+                        customActions = listOf(
+                            CustomAccessibilityAction("前のページ") { turnPage(-1) },
+                            CustomAccessibilityAction("次のページ") { turnPage(1) },
+                        )
+                    }
+                },
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(pageCount) { page ->
                     Box(Modifier.size(6.dp).background(if (page == realPage) colors.accent else colors.text.copy(alpha = 0.4f), CircleShape))
