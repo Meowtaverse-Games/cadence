@@ -3,7 +3,6 @@ package com.meowtaversegames.cadence
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
@@ -92,17 +91,13 @@ fun HomeScreen(
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    // Recreated on HOME even during a fling, so a jump never displays the old deformation.
-    var motionSuppressed by remember(homeRequest) { mutableStateOf(true) }
-    val motionEnabled = scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f
-    LaunchedEffect(homeRequest, motionSuppressed) {
-        if (motionSuppressed) {
-            snapshotFlow { !listState.isScrollInProgress }.first { it }
-            motionSuppressed = false
-        }
+    val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed) {
+        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
     }
+    val motionState = rememberEntranceMotion(listState, layout.items,
+        scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f, homeRequest)
     fun jumpTo(position: Int) {
-        motionSuppressed = true
+        motionState.suppress()
         listState.requestScrollToItem(position)
     }
     fun closeSearch() {
@@ -116,10 +111,6 @@ fun HomeScreen(
     val apps = snapshot.apps
     LaunchedEffect(apps) { if (menu?.id !in apps.map { it.id }) menu = null }
     val visibleFavoriteIds = visibleFavorites(favorites, apps).map { it.id }
-    val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed) {
-        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
-    }
-    val entranceProgress = rememberEntranceProgress(listState, layout.items, motionEnabled, motionSuppressed, homeRequest)
     val colors = LocalHomeColors.current
     fun changeQuery(value: String) {
         onQueryChange(value)
@@ -134,14 +125,14 @@ fun HomeScreen(
                 items(layout.items, key = { it.key }) { item ->
                     val moving = item !is HomeItem.Widget && item.key != "header"
                     val rowModifier = if (!moving) Modifier else Modifier.graphicsLayer {
-                        if (!motionEnabled || motionSuppressed) {
+                        if (!motionState.enabled || motionState.suppressed) {
                             translationX = 0f; translationY = 0f
                             scaleX = 1f; scaleY = 1f
                             alpha = 1f; rotationZ = 0f
                             return@graphicsLayer
                         }
                         // Read key state and progress only at draw time; no per-frame recomposition.
-                        val motion = entranceMotion(entranceProgress[item.key]?.value ?: 1f)
+                        val motion = motionState.motion(item.key)
                         translationX = this.size.width * motion.translationXFraction
                         translationY = this.size.height * motion.translationYFraction
                         scaleX = motion.scale; scaleY = motion.scale

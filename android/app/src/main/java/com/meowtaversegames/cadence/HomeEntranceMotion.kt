@@ -6,109 +6,130 @@ import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.*
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private data class EntranceObservation(
-    val info: LazyListLayoutInfo,
-    val items: List<HomeItem>,
-    val rows: List<EntranceRow>,
-    val matchesLayout: Boolean,
-    val scrolling: Boolean,
-    val enabled: Boolean,
-    val suppressed: Boolean,
-)
+/** Rows retain this one object for the screen lifetime, including across HOME intents. */
+@Stable
+class EntranceMotionState {
+    var enabled by mutableStateOf(true)
+        private set
+    var suppression by mutableStateOf(EntranceSuppression())
+        private set
+    private var homeRequest: Int? = null
+    private val animations = mutableStateMapOf<String, Animatable<Float, AnimationVector1D>>()
+    private val jobs = mutableMapOf<String, Job>()
+    private val tracker = EntranceTracker()
+    val suppressed: Boolean get() = suppression.suppressed
 
-/** Screen-owned animations: composition/prefetch of an individual row never starts one. */
-@Composable
-fun rememberEntranceProgress(listState: LazyListState, items: List<HomeItem>, enabled: Boolean,
-    suppressed: Boolean, homeRequest: Int): Map<String, Animatable<Float, AnimationVector1D>> {
-    val animations = remember(homeRequest) { mutableStateMapOf<String, Animatable<Float, AnimationVector1D>>() }
-    val latestItems = rememberUpdatedState(items)
-    val eligible = rememberUpdatedState(items.filter { it !is HomeItem.Widget && it.key != "header" }.map { it.key }.toSet())
-    val latestEnabled = rememberUpdatedState(enabled)
-    val latestSuppressed = rememberUpdatedState(suppressed)
-    LaunchedEffect(listState, homeRequest) {
-        coroutineScope {
-            val jobs = mutableMapOf<String, Job>()
-            var previous: Set<String>? = null
-            var previousItems: List<HomeItem>? = null
-            var previousInfo: LazyListLayoutInfo? = null
-            var pendingLayoutInfo: LazyListLayoutInfo? = null
-            fun clear() {
-                jobs.values.toList().forEach { it.cancel() }
-                jobs.clear()
-                animations.clear()
+    fun configure(enabled: Boolean, homeRequest: Int) {
+        this.enabled = enabled
+        if (!enabled) clear()
+        if (this.homeRequest != homeRequest) {
+            this.homeRequest = homeRequest
+            suppress()
+        }
+    }
+
+    fun suppress() {
+        suppression = suppression.request()
+        clear()
+    }
+
+    fun releaseAfterIdleFrame(generation: Long, scrolling: Boolean) {
+        suppression = suppression.afterIdleFrame(generation, scrolling)
+    }
+
+    fun motion(key: String): RowMotion =
+        if (!enabled || suppressed) RowMotion() else entranceMotion(animations[key]?.value ?: 1f)
+
+    private fun remove(key: String) {
+        // Remove ownership before cancelling; an old job must not remove a returning row.
+        animations.remove(key)
+        jobs.remove(key)?.cancel()
+        tracker.completed(key)
+    }
+
+    fun clear() {
+        animations.keys.toList().forEach(::remove)
+    }
+
+    fun observe(frame: EntranceFrame, scope: CoroutineScope) {
+        val changes = tracker.observe(frame)
+        if (changes.clearAll) clear() else changes.remove.forEach(::remove)
+        changes.start.forEachIndexed { position, key ->
+            val progress = Animatable(0f)
+            animations[key] = progress
+            val job = scope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    delay(entranceDelayMillis(position).toLong())
+                    progress.animateTo(1f, tween(320, easing = Easing { t ->
+                        val remaining = 1f - t
+                        1f - remaining * remaining * remaining
+                    }))
+                } finally {
+                    if (animations[key] === progress) {
+                        animations.remove(key)
+                        jobs.remove(key)
+                        tracker.completed(key)
+                    }
+                }
             }
+            jobs[key] = job
+            job.start()
+        }
+    }
+}
+
+private data class EntranceObservation(val info: LazyListLayoutInfo, val frame: EntranceFrame)
+
+@Composable
+fun rememberEntranceMotion(listState: LazyListState, items: List<HomeItem>, enabled: Boolean,
+    homeRequest: Int): EntranceMotionState {
+    val state = remember(listState) { EntranceMotionState() }
+    val keys = rememberUpdatedState(items.map { it.key })
+    val eligible = rememberUpdatedState(items.filter { it !is HomeItem.Widget && it.key != "header" }.map { it.key }.toSet())
+    SideEffect { state.configure(enabled, homeRequest) }
+
+    // One collector for the screen lifetime. HOME only advances the observed generation.
+    LaunchedEffect(listState, state) {
+        coroutineScope {
+            var lastInfo: LazyListLayoutInfo? = null
+            var measurement = 0L
             try {
                 snapshotFlow {
                     val info = listState.layoutInfo
-                    val currentItems = latestItems.value
                     val rows = info.visibleItemsInfo.filter {
                         it.size > 0 && it.offset < info.viewportEndOffset &&
                             it.offset.toLong() + it.size > info.viewportStartOffset && it.key in eligible.value
                     }.map { EntranceRow(it.key as String, it.offset) }
-                    EntranceObservation(info, currentItems, rows,
-                        info.visibleItemsInfo.all { currentItems.getOrNull(it.index)?.key == it.key },
-                        listState.isScrollInProgress, latestEnabled.value, latestSuppressed.value)
-                }.collect { frame ->
-                    val layoutChanged = previousItems != null && previousItems != frame.items
-                    // Composition can publish new items before LazyColumn measures them. Baseline
-                    // the following measurement too, so a rebuild during a fling cannot animate it.
-                    if (layoutChanged) pendingLayoutInfo = frame.info.takeIf { it === previousInfo }
-                    val resettingLayout = layoutChanged || pendingLayoutInfo != null || !frame.matchesLayout
-                    if (pendingLayoutInfo != null && frame.info !== pendingLayoutInfo) pendingLayoutInfo = null
-                    val current = frame.rows.map { it.key }.toSet()
-                    val entering = enteringKeys(previous, frame.rows, frame.scrolling, frame.enabled,
-                        frame.suppressed, resettingLayout)
-                    previous = current.takeIf { frame.matchesLayout }
-                    previousItems = frame.items
-                    previousInfo = frame.info
-                    if (!frame.enabled || frame.suppressed || resettingLayout) {
-                        clear()
-                    } else {
-                        // Leaving the viewport forgets the key immediately, including delayed jobs.
-                        animations.keys.filterNot { it in current }.forEach { key ->
-                            jobs.remove(key)?.cancel()
-                            animations.remove(key)
-                        }
-                        entering.forEachIndexed { position, key ->
-                            val progress = Animatable(0f)
-                            animations[key] = progress
-                            val job = launch(start = CoroutineStart.LAZY) {
-                                try {
-                                    delay(entranceDelayMillis(position).toLong())
-                                    progress.animateTo(1f, tween(320, easing = Easing { t ->
-                                        val remaining = 1f - t
-                                        1f - remaining * remaining * remaining
-                                    }))
-                                } finally {
-                                    // A returning row may already own a newer animation for this key.
-                                    if (animations[key] === progress) {
-                                        animations.remove(key)
-                                        jobs.remove(key)
-                                    }
-                                }
-                            }
-                            jobs[key] = job
-                            job.start()
-                        }
-                    }
+                    EntranceObservation(info, EntranceFrame(rows, keys.value, listState.isScrollInProgress,
+                        state.enabled, state.suppressed, state.suppression.generation))
+                }.collect { observation ->
+                    if (observation.info !== lastInfo) measurement++
+                    lastInfo = observation.info
+                    state.observe(observation.frame.copy(measurement = measurement), this)
                 }
             } finally {
-                clear()
+                state.clear()
             }
         }
     }
-    return animations
+    // Never keyed by suppression or HOME. Even an already idle request gets a release frame.
+    LaunchedEffect(listState, state) {
+        snapshotFlow { state.suppression to listState.isScrollInProgress }.collectLatest { (gate, scrolling) ->
+            if (gate.suppressed && !scrolling) {
+                withFrameNanos { }
+                state.releaseAfterIdleFrame(gate.generation, listState.isScrollInProgress)
+            }
+        }
+    }
+    return state
 }
