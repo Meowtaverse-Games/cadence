@@ -118,3 +118,30 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+      # Run only after the configuration-free APK has been built and uploaded.
+      - name: Check google-services plugin with synthetic configuration
+        run: |
+          set -euo pipefail
+          test ! -e app/google-services.json
+          before=$(sha256sum app/build/outputs/apk/debug/*.apk)
+          trap 'rm -f app/google-services.json; rm -rf app/build/generated/res/google-services/debug' EXIT
+          python3 - <<'PYSYNTHETIC'
+          import json
+          from pathlib import Path
+          config = {
+              "project_info": {"project_number": "000000000000", "project_id": "demo-cadence"},
+              "client": [{
+                  "client_info": {
+                      "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                      "android_client_info": {"package_name": "com.meowtaversegames.cadence"}
+                  },
+                  "api_key": [{"current_key": "synthetic-dummy-key-not-valid"}]
+              }],
+              "configuration_version": "1"
+          }
+          Path("app/google-services.json").write_text(json.dumps(config))
+          PYSYNTHETIC
+          ./gradlew :app:processDebugGoogleServices --no-daemon
+          test -s app/build/generated/res/google-services/debug/values/values.xml
+          after=$(sha256sum app/build/outputs/apk/debug/*.apk)
+          test "$before" = "$after"
