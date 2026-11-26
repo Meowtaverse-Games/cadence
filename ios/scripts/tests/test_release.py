@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 from zipfile import ZipFile
 
 
@@ -82,7 +82,18 @@ class IpaVerificationTests(unittest.TestCase):
                 verification.verify_bundle(self.app, verification.BUNDLES["Cadence.app"], "42")
 
     def test_valid_app_store_bundle(self):
-        self.verify_bundle()
+        with patch.object(verification.subprocess, "run") as run:
+            run.side_effect = [
+                subprocess.CompletedProcess([], 0, plistlib.dumps(self.entitlements), b"synthetic private output"),
+                subprocess.CompletedProcess([], 0, plistlib.dumps(self.profile), b"synthetic private output"),
+            ]
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                verification.verify_bundle(self.app, verification.BUNDLES["Cadence.app"], "42")
+            self.assertEqual(run.call_args_list, [
+                call(["codesign", "-d", "--entitlements", "-", "--xml", str(self.app)], capture_output=True),
+                call(["security", "cms", "-D", "-i", str(self.app / "embedded.mobileprovision")], capture_output=True),
+            ])
+            self.assertNotIn("synthetic private output", output.getvalue())
 
     def test_rejects_development_ad_hoc_and_enterprise_profiles(self):
         for changes in ({"ProvisionedDevices": ["synthetic-device"]}, {"ProvisionsAllDevices": True}):

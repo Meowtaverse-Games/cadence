@@ -45,8 +45,11 @@ CIではScreen Timeの実動作や署名を検証できない。
 TestFlight の内部テストは [apple-setup.md の手順11](../docs/apple-setup.md#11-testflight-の前に必要なことpr-5)
 の準備後、Codemagic の Start new build で対象ブランチと `ios-release` を選んで手動実行する。
 App Store 用の署名、最新の TestFlight ビルド番号 + 1（初回は1）、3ターゲットの IPA 検査を経て、
-Secret の `TESTFLIGHT_BETA_GROUP` で指定した内部グループに配る。マーケティング版は `project.yml` のまま。
+App Store Connect にアップロードする。内部グループへの配布は、手順11の3で有効にする「自動配信」に任せる。
+マーケティング版は `project.yml` のまま。
 内部テスト専用で export し、外部テスト・App Store の公開には使用しない。
+初回は App Store Connect の処理の完了後、内部グループに自動配信で届くことと、
+Beta App Review に提出されていないことを確認する。
 同じ番号の並行取得を避けるため、`ios-release` は前の実行・TestFlight 処理の完了後に開始する。
 
 ## プロジェクトの生成とビルド

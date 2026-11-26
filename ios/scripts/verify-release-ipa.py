@@ -37,7 +37,7 @@ def verify_bundle(bundle, bundle_id, expected_build):
     require(info.get("ITSAppUsesNonExemptEncryption") is False, "暗号の申告がありません。")
     require((bundle / "PrivacyInfo.xcprivacy").is_file(), "プライバシーマニフェストがありません。")
 
-    entitlements = command_plist(["codesign", "-d", "--entitlements", ":-", str(bundle)])
+    entitlements = command_plist(["codesign", "-d", "--entitlements", "-", "--xml", str(bundle)])
     profile = command_plist(["security", "cms", "-D", "-i", str(bundle / "embedded.mobileprovision")])
     profile_entitlements = profile.get("Entitlements", {})
     require(entitlements.get(FAMILY_CONTROLS) is True, "署名に Family Controls の entitlement がありません。")

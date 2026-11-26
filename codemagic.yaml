@@ -79,17 +79,15 @@ workflows:
     # Start manually. Export restricts this build to internal TestFlight testing.
     environment: *ios-environment
     scripts:
-      - name: Check TestFlight secrets
+      - name: Check App Store app ID secret
         script: |
           set +x
           set -euo pipefail
-          for variable in APP_STORE_APP_ID TESTFLIGHT_BETA_GROUP; do
-            value="${!variable:-}"
-            if [[ -z "${value//[[:space:]]/}" ]]; then
-              echo "docs/apple-setup.md の手順11に従い、cadence_apple に $variable を Secret として登録してください。"
-              exit 1
-            fi
-          done
+          value="${APP_STORE_APP_ID:-}"
+          if [[ -z "${value//[[:space:]]/}" ]]; then
+            echo 'docs/apple-setup.md の手順11に従い、cadence_apple に APP_STORE_APP_ID を Secret として登録してください。'
+            exit 1
+          fi
       - *restore-firebase
       - *generate-ios-project
       - name: Select the next TestFlight build number
@@ -134,7 +132,5 @@ workflows:
         api_key: $APP_STORE_CONNECT_PRIVATE_KEY
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: true
-        beta_groups:
-          - $TESTFLIGHT_BETA_GROUP
+        # Upload only. Internal groups receive processed builds via automatic distribution.
         submit_to_app_store: false
