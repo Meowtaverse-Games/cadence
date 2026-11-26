@@ -183,6 +183,31 @@ Token Service API (`securetoken.googleapis.com`)、Cloud Firestore API (`firesto
 ならない。ここだけは管理者が固定 timestamp を入力できる。アプリからの書き込みでは
 serverTimestamp が必須。アクセス許可・拒否の検証は下記のエミュレーターテストで行う。
 
+## 8. Android アプリを登録する
+
+iOS（手順5）と同じく、ブラウザの Firebase コンソールで行う。
+
+1. 「プロジェクトの概要（Project Overview）」→「アプリを追加」→ Android を選ぶ。
+   SDK の追加や初期化コードの説明は読み飛ばしてよい（Android 本体に実装済み）。
+2. パッケージ名を **`com.meowtaversegames.cadence`** として登録する（Android の ID にはハイフンを使えないため、
+   iOS の bundle ID と違う）。アプリのニックネームは任意。デバッグ用の署名証明書 SHA-1 は、
+   メール・パスワードのサインインと Firestore だけを使うので空欄でよい。
+3. `google-services.json` をダウンロードする。**リポジトリにコミットしない**（`.gitignore` 済み）。
+   公開リポジトリの GitHub Actions はこのファイルなしで debug のビルドとテストだけを行い、その APK は
+   「このビルドには Firebase の設定がありません」と示して端末だけで動く。
+4. Firebase につながる APK は Codemagic の `android-firebase-debug` ワークフロー（手動のみ）で作る。
+   Codemagic の成果物は公開されない。Codemagic の「Environment variables」で、グループ `cadence_android` に
+   次の2つを **Secret** として登録する。
+   - `GOOGLE_SERVICES_JSON_BASE64`: ダウンロードした `google-services.json` を base64 にした値
+     （例: `base64 -w0 google-services.json`。macOS では `base64 -i google-services.json`）
+   - `ANDROID_DEBUG_KEYSTORE_BASE64`: GitHub の secret と同じ debug の鍵（`debug.keystore`）を base64 にした値。
+     同じ鍵で署名するので、GitHub Actions の debug の APK を入れた端末にも、アンインストールせずに上書きで入る。
+5. 手元でビルドする場合だけ、`android/app/google-services.json` に置く。置いたあと、リポジトリのルートで
+   `git check-ignore android/app/google-services.json` がパスを表示し、`git status --short` にファイルが
+   出ないことを確認する。強制追加はしない。
+6. 確認: Codemagic でビルドした APK を入れ、設定画面でサインインすると、手順7の合成データ（または
+   iPhone で保存した時間割）が届き、最終同期時刻が出ること。
+
 ## 自動テスト
 
 GitHub Actions の Firebase ワークフローは Node.js 24 と Java 21 を準備し、
