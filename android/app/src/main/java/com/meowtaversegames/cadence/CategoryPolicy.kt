@@ -37,7 +37,7 @@ fun removePackageCategories(categories: List<HomeCategory>, packageName: String)
 }
 /** Only the displayed inventory is editable; temporarily unavailable IDs keep their slots. */
 fun applyCategorySelection(ids: List<String>, selected: Set<String>, apps: List<AppEntry>,
-    installedIds: Set<String>?, names: Comparator<String> = Collator.getInstance(Locale.JAPANESE)): List<String> {
+    installedIds: Set<String>?, names: Comparator<String> = Comparator(Collator.getInstance(Locale.JAPANESE)::compare)): List<String> {
     if (installedIds == null) return ids
     val editable = apps.map { it.id }.toSet().intersect(installedIds)
     val retained = ids.filter { it !in editable || it in selected }

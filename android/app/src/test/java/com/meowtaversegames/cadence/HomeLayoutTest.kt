@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeLayoutTest {
+    @Test fun focusedEmptySearchHidesHomeContentButStillSearchesAllApps() {
+        val app = AppEntry("synthetic.alpha/Main", "synthetic.alpha", "Alpha", 1, "A")
+        val layout = homeLayout(listOf(AppSection(1, "A", listOf(app))), listOf(app.id), "", searching = true)
+        assertFalse(layout.items.any { it.key == "header" || it.key == "empty-favorites" })
+        assertEquals(listOf(HomeItem.App(app)), layout.items.filterIsInstance<HomeItem.App>())
+    }
+
     private val a = AppEntry("sample.alpha/Main", "sample.alpha", "Alpha", 1, "A")
     private val b = AppEntry("sample.beta/Main", "sample.beta", "Beta", 2, "B")
     private val c = AppEntry("sample.canvas/Main", "sample.canvas", "Canvas", 2, "B")

@@ -107,14 +107,15 @@ fun HomeScreen(
     SideEffect { categoryLists.keys.retainAll(categories.map { it.id }.toSet()) }
     var searchFocused by remember { mutableStateOf(false) }
     var indexing by remember { mutableStateOf(false) }
+    val searching = query.isNotEmpty() || searchFocused
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed) {
-        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
+    val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed, searching) {
+        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed, searching)
     }
     val motionState = rememberEntranceMotion(listState, layout.items,
         scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f &&
-            (query.isNotEmpty() || (realPage == 0 && !pager.isScrollInProgress)), homeRequest)
+            (searching || (realPage == 0 && !pager.isScrollInProgress)), homeRequest)
     fun jumpTo(position: Int) {
         motionState.suppress()
         listState.requestScrollToItem(position)
@@ -124,8 +125,8 @@ fun HomeScreen(
         jumpTo(0)
     }
     LaunchedEffect(homeRequest) { focus.clearFocus(); keyboard?.hide() }
-    BackHandler(enabled = consumesHomeBack(query.isNotEmpty(), defaultHome, realPage != 0)) {
-        if (query.isNotEmpty()) closeSearch()
+    BackHandler(enabled = consumesHomeBack(searching, defaultHome, realPage != 0)) {
+        if (searching) closeSearch()
         else if (realPage != 0) scope.launch {
             pager.animateScrollToPage(nearestHomePage(pager.currentPage, 0, pageCount))
         }
@@ -160,7 +161,7 @@ fun HomeScreen(
                             is HomeItem.Fixed -> when (item.key) {
                                 "header" -> HomeHeader(presentation, onSettings, onOpenClock, onOpenCalendar, onAddWidget, widgetAddReason)
                                 "empty-favorites" -> Text("下の一覧から長押しで追加できます", Modifier.padding(vertical = 16.dp))
-                                "all-apps" -> Text(if (query.isEmpty()) "すべてのアプリ" else "検索結果",
+                                "all-apps" -> Text(if (!searching) "すべてのアプリ" else "検索結果",
                                     Modifier.padding(top = 24.dp, bottom = 12.dp), style = MaterialTheme.typography.titleMedium)
                                 "empty-apps" -> Text("一致するアプリがありません", Modifier.padding(vertical = 24.dp))
                                 else -> Unit
@@ -176,7 +177,7 @@ fun HomeScreen(
     }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
         Box(Modifier.weight(1f)) {
-            if (query.isNotEmpty()) standardContent()
+            if (searching) standardContent()
             else HorizontalPager(state = pager, userScrollEnabled = pageCount > 1 && !indexing && !searchFocused,
                 modifier = Modifier.fillMaxSize()) { virtualPage ->
                 val page = realHomePage(virtualPage, pageCount)
@@ -211,12 +212,15 @@ fun HomeScreen(
         }
         OutlinedTextField(value = query, onValueChange = ::changeQuery,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                .onFocusChanged { searchFocused = it.isFocused }, singleLine = true,
+                .onFocusChanged {
+                    if (it.isFocused && !searchFocused) jumpTo(0)
+                    searchFocused = it.isFocused
+                }, singleLine = true,
             shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = colors.plate,
                 unfocusedContainerColor = colors.plate),
             label = { Text("アプリを検索") },
-            trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = ::closeSearch) { Text("消去") } },
+            trailingIcon = { if (searching) TextButton(onClick = ::closeSearch) { Text("消去") } },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { launchFirst() }, onGo = { launchFirst() }))
     }

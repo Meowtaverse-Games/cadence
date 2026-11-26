@@ -58,11 +58,11 @@ class HomePagingTest {
     @Test fun glassUsesOppositePlateAndFixedLightweightLayers() {
         assertEquals(0xFFFFFF, CategoryGlass.plateRgb(true))
         assertEquals(0x000000, CategoryGlass.plateRgb(false))
-        assertEquals(0.28f, CategoryGlass.plateAlpha)
-        assertEquals(0.10f, CategoryGlass.highlightAlpha)
-        assertEquals(0.45f, CategoryGlass.borderTopAlpha)
-        assertEquals(0.12f, CategoryGlass.borderBottomAlpha)
-        assertEquals(0.04f, CategoryGlass.noiseAlpha)
+        assertEquals(0.28f, CategoryGlass.plateAlpha, 0f)
+        assertEquals(0.10f, CategoryGlass.highlightAlpha, 0f)
+        assertEquals(0.45f, CategoryGlass.borderTopAlpha, 0f)
+        assertEquals(0.12f, CategoryGlass.borderBottomAlpha, 0f)
+        assertEquals(0.04f, CategoryGlass.noiseAlpha, 0f)
         assertEquals(28, CategoryGlass.cornerDp)
         assertEquals(1, CategoryGlass.borderDp)
     }
