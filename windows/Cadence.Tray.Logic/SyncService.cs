@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
 using Cadence.Core;
 
 namespace Cadence.Tray.Logic;
@@ -59,9 +61,14 @@ public sealed class SyncService : IDisposable
     private readonly SemaphoreSlim gate = new(1, 1);
     private SavedSession? saved;
     private AuthToken? token;
+    private CancellationTokenSource? retryCancellation;
+    private int transientFailures;
+    private bool disposed;
     private bool authNotified;
     private bool authNotificationPending;
     public SyncState State { get; }
+    public Task RetryCompletion { get; private set; } = Task.CompletedTask;
+    public bool IsSynchronizing => gate.CurrentCount == 0;
     public bool Configured => client is not null;
     public bool HasSavedSession => saved is not null;
     public string? Email => saved?.Email;
@@ -101,6 +108,8 @@ public sealed class SyncService : IDisposable
             var replacement = result.Config is { } config
                 ? (createClient is null ? new FirebaseClient(config, clock, new HttpClientHandler()) : createClient(config))
                 : null;
+            CancelRetry();
+            transientFailures = 0;
             var previous = client;
             client = replacement;
             // A token from the previous connection must not be sent to a changed project.
@@ -118,6 +127,8 @@ public sealed class SyncService : IDisposable
         await gate.WaitAsync(cancellation);
         try
         {
+            CancelRetry();
+            transientFailures = 0;
             if (client is null) return AuthProblem;
             var fresh = await client.SignInAsync(email, password, cancellation);
             token = fresh;
@@ -125,12 +136,12 @@ public sealed class SyncService : IDisposable
             authNotified = false;
             authNotificationPending = false;
             PersistSession();
-            await SyncLockedAsync(cancellation);
-            return null;
+            ScheduleRetry(await SyncLockedAsync(cancellation), cancellation);
         }
         catch (FirebaseFailure failure) { return SignInErrors.Message(failure.Code); }
         catch { return "サインインできません。接続や設定を確認してください。"; }
         finally { gate.Release(); }
+        return null;
     }
 
     public async Task SignOutAsync(CancellationToken cancellation = default)
@@ -138,6 +149,8 @@ public sealed class SyncService : IDisposable
         await gate.WaitAsync(cancellation);
         try
         {
+            CancelRetry();
+            transientFailures = 0;
             saved = null;
             token = null;
             authNotificationPending = false;
@@ -149,14 +162,59 @@ public sealed class SyncService : IDisposable
 
     public async Task SyncAsync(CancellationToken cancellation = default)
     {
-        await gate.WaitAsync(cancellation);
-        try { await SyncLockedAsync(cancellation); }
+        // A periodic/manual sync and the delayed retry must never queue two fetches.
+        if (!await gate.WaitAsync(0, cancellation)) return;
+        try
+        {
+            CancelRetry();
+            ScheduleRetry(await SyncLockedAsync(cancellation), cancellation);
+        }
         finally { gate.Release(); }
     }
 
-    private async Task SyncLockedAsync(CancellationToken cancellation)
+    private void ScheduleRetry(string? reason, CancellationToken cancellation)
     {
-        if (client is null || saved is null) return;
+        if (reason is null || disposed || cancellation.IsCancellationRequested) return;
+        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        retryCancellation = source;
+        log("sync_retry_scheduled");
+        RetryCompletion = RetryAsync(source);
+    }
+
+    private async Task RetryAsync(CancellationTokenSource source)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), clock, source.Token);
+            if (!await gate.WaitAsync(0, source.Token)) return;
+            try
+            {
+                if (disposed || source.IsCancellationRequested || retryCancellation != source) return;
+                // Do not schedule again, regardless of this attempt's result.
+                var reason = await SyncLockedAsync(source.Token);
+                if (source.IsCancellationRequested) return;
+                log(reason is not null ? "sync_retry_failed reason=" + reason
+                    : State.Problem is null ? "sync_retry_succeeded" : "sync_retry_completed_with_problem");
+            }
+            finally { gate.Release(); }
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested) { }
+        finally
+        {
+            if (retryCancellation == source) retryCancellation = null;
+            source.Dispose();
+        }
+    }
+
+    private void CancelRetry()
+    {
+        retryCancellation?.Cancel();
+        retryCancellation = null;
+    }
+
+    private async Task<string?> SyncLockedAsync(CancellationToken cancellation)
+    {
+        if (disposed || client is null || saved is null) return null;
         try
         {
             if (token is null || token.NeedsRefresh(clock))
@@ -168,7 +226,11 @@ public sealed class SyncService : IDisposable
                 await RefreshTokenAsync(cancellation);
                 response = await client.FetchAsync(token!, cancellation);
             }
+            if (IsTransient(response.Status)) return TransientFailure("http_" + (int)response.Status);
+            transientFailures = 0;
             var cache = State.Apply(response.Status, response.Body, clock);
+            if (response.Status != HttpStatusCode.OK) log("sync_failed reason=http_" + (int)response.Status);
+            else if (cache is null) log("sync_failed reason=parse");
             if (cache is not null)
             {
                 try
@@ -183,18 +245,54 @@ public sealed class SyncService : IDisposable
                 }
             }
         }
-        catch (FirebaseFailure failure) when (failure.RequiresSignIn) { RequireSignIn(); }
+        catch (FirebaseFailure failure) when (failure.RequiresSignIn)
+        {
+            transientFailures = 0;
+            RequireSignIn();
+        }
+        catch (FirebaseFailure failure) when (IsTransient(failure.Status))
+        {
+            return TransientFailure("http_" + (int)failure.Status);
+        }
         catch (FirebaseFailure)
         {
+            transientFailures = 0;
             State.SetProblem("認証の設定を確認してください（次の周期で再試行）");
             log("token_refresh_failed");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-        catch
+        catch (Exception failure) { return TransientFailure(FailureReason(failure)); }
+        return null;
+    }
+
+    private static bool IsTransient(HttpStatusCode status) => (int)status is >= 500 and <= 599 or 429;
+
+    private string TransientFailure(string reason)
+    {
+        transientFailures = Math.Min(2, transientFailures + 1);
+        if (transientFailures >= 2) State.SetProblem("同期できません（次の周期で再試行）");
+        log("sync_failed reason=" + reason);
+        return reason;
+    }
+
+    // Only fixed categories leave this boundary; never log exception messages/URLs.
+    public static string FailureReason(Exception failure)
+    {
+        if (failure is OperationCanceledException or TimeoutException) return "timeout";
+        if (failure is HttpRequestException { StatusCode: { } status }) return "http_" + (int)status;
+        for (Exception? cause = failure; cause is not null; cause = cause.InnerException)
         {
-            State.SetProblem("同期できません（次の周期で再試行）");
-            log("sync_failed");
+            if (cause is SocketException socket)
+                return socket.SocketErrorCode is SocketError.HostNotFound or SocketError.NoData or SocketError.TryAgain
+                    ? "dns" : "connect";
         }
+        return failure switch
+        {
+            HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "dns",
+            HttpRequestException => "connect",
+            JsonException or FormatException or InvalidOperationException or KeyNotFoundException or OverflowException => "parse",
+            _ => "other"
+        };
     }
 
     private async Task RefreshTokenAsync(CancellationToken cancellation)
@@ -232,5 +330,10 @@ public sealed class SyncService : IDisposable
         sessionStorageFailed = true;
         log("storage_failed");
     }
-    public void Dispose() => client?.Dispose();
+    public void Dispose()
+    {
+        disposed = true;
+        CancelRetry();
+        client?.Dispose();
+    }
 }
