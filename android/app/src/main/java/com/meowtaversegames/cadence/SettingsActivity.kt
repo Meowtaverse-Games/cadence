@@ -27,6 +27,9 @@ class SettingsActivity : ComponentActivity() {
     private var apps by mutableStateOf<List<AppEntry>>(emptyList())
     private var protectedPackages by mutableStateOf(emptySet<String>())
     private lateinit var repository: LauncherRepository
+    private var categories by mutableStateOf(emptyList<HomeCategory>())
+    private var categoriesFailed by mutableStateOf(false)
+    private var installedIds by mutableStateOf<Set<String>?>(null)
     private var favoritesFailed by mutableStateOf(false)
     private var homeTheme by mutableStateOf(HomeThemeSettings())
     private var homeThemeFailed by mutableStateOf(false)
@@ -40,9 +43,19 @@ class SettingsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Auto system-bar styles follow the device theme; content already uses safeDrawingPadding.
         enableEdgeToEdge()
-        repository = LauncherRepository(this, loadIcons = false) { snapshot ->
-            if (snapshot.failed) actionError = "アプリの一覧を読み込めませんでした"
-            else apps = snapshot.apps
+        repository = LauncherRepository(this, loadIcons = false, onPackageRemoved = { packageName ->
+            val stored = runtime.store.categories.read()
+            categoriesFailed = stored.failed
+            categories = stored.value.orEmpty()
+            if (!stored.failed) {
+                val next = removePackageCategories(categories, packageName)
+                if (next != categories) saveCategories(next)
+            }
+        }) { snapshot ->
+            if (snapshot.failed) {
+                installedIds = null
+                actionError = "アプリの一覧を読み込めませんでした"
+            } else { apps = snapshot.apps; installedIds = snapshot.installedIds }
         }
         setContent {
             CadenceTheme {
@@ -90,6 +103,7 @@ class SettingsActivity : ComponentActivity() {
                         }) { Text("ウィジェットを追加") }
                         widgetAddReason?.let { Text(it) }
                     }
+                    item { CategorySettings(categories, categoriesFailed, apps, installedIds, ::saveCategories) }
                     items(PermissionKind.entries) { kind ->
                         val missing = kind in runtime.permissionState.missing()
                         Text("${kind.label}: ${if (missing) "必要です" else "許可済み"}")
@@ -141,6 +155,9 @@ class SettingsActivity : ComponentActivity() {
         runtime.reconcile(ReconcileSource.VISIBLE_ACTIVITY)
         protectedPackages = Permissions.protectedPackages(this)
         favoritesFailed = runtime.store.readFavorites().failed
+        val storedCategories = runtime.store.categories.read()
+        categories = storedCategories.value.orEmpty()
+        categoriesFailed = storedCategories.failed
         val widgets = runtime.store.widgets.read()
         val savedWidgets = widgets.value?.widgets.orEmpty()
         val availableWidgets = savedWidgets.filter { widgetProvider(this, it) { runtime.store.log("widget_info_failed") } != null }
@@ -154,6 +171,11 @@ class SettingsActivity : ComponentActivity() {
     override fun onDestroy() {
         repository.close()
         super.onDestroy()
+    }
+
+    private fun saveCategories(value: List<HomeCategory>) {
+        try { runtime.store.categories.save(value); categories = value }
+        catch (_: Exception) { actionError = "カテゴリを保存できませんでした。元のファイルは保護されています" }
     }
 
     private fun saveHomeTheme(value: HomeThemeSettings) {

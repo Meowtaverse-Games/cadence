@@ -109,6 +109,30 @@ class EntranceTrackerTest {
         assertEquals(listOf(keys[6]), tracker.observe(frame(5, 6, order = reordered, measurement = 4)).start)
     }
 
+    @Test fun independentPagesResumeScrollEntrancesAfterRepeatedPagingAndHomeReturns() {
+        val home = EntranceTracker()
+        val category = EntranceTracker()
+        var homeGate = EntranceSuppression(suppressed = false)
+        home.observe(frame(0, 1, scrolling = false))
+        category.observe(frame(10, 11, scrolling = false, enabled = false))
+        repeat(6) { cycle ->
+            val m = cycle * 10L + 2
+            home.observe(frame(0, 1, scrolling = false, enabled = false, gate = homeGate, measurement = m))
+            // Horizontal arrival changes visibility but is not a list scroll.
+            assertTrue(category.observe(frame(10, 11, scrolling = false, measurement = m)).start.isEmpty())
+            assertEquals(listOf(keys[12]), category.observe(frame(11, 12, measurement = m + 1)).start)
+            category.observe(frame(11, 12, scrolling = false, enabled = false, measurement = m + 2))
+            homeGate = homeGate.request()
+            home.observe(frame(0, 1, scrolling = false, gate = homeGate, measurement = m + 3))
+            homeGate = homeGate.afterIdleFrame(homeGate.generation, false)
+            home.observe(frame(0, 1, scrolling = false, gate = homeGate, measurement = m + 3))
+            assertEquals(listOf(keys[2]), home.observe(frame(1, 2, gate = homeGate, measurement = m + 4)).start)
+            // Return to the same category, then scroll upward: a returning row animates again.
+            assertTrue(category.observe(frame(11, 12, scrolling = false, measurement = m + 5)).start.isEmpty())
+            assertEquals(listOf(keys[10]), category.observe(frame(10, 11, measurement = m + 6)).start)
+        }
+    }
+
     private fun disableAndRestore() {
         val tracker = EntranceTracker()
         tracker.observe(frame(0, 1))

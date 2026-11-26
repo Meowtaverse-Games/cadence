@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeLayoutTest {
+    @Test fun emptyQueryKeepsHeaderAndFavoritesUntilTextIsEntered() {
+        val app = AppEntry("synthetic.alpha/Main", "synthetic.alpha", "Alpha", 1, "A")
+        val layout = homeLayout(listOf(AppSection(1, "A", listOf(app))), listOf(app.id), "")
+        assertTrue(layout.items.any { it.key == "header" })
+        assertEquals(listOf(HomeItem.App(app, favorite = true), HomeItem.App(app)), layout.items.filterIsInstance<HomeItem.App>())
+    }
+
+    @Test fun touchingOrMovingWithinIndexSlopDoesNotSelectAHeading() {
+        assertFalse(startsIndexDrag(0f, 0f, 8f))
+        assertFalse(startsIndexDrag(0f, 7.9f, 8f))
+        assertFalse(startsIndexDrag(8f, 0f, 8f))
+        assertFalse(startsIndexDrag(4f, -4f, 8f))
+    }
+    @Test fun indexSelectionStartsAfterSlopInEitherDirection() {
+        assertTrue(startsIndexDrag(0f, 8.1f, 8f))
+        assertTrue(startsIndexDrag(0f, -8.1f, 8f))
+        assertTrue(startsIndexDrag(-8.1f, 0f, 8f))
+        assertTrue(startsIndexDrag(6f, -6f, 8f))
+    }
+
     private val a = AppEntry("sample.alpha/Main", "sample.alpha", "Alpha", 1, "A")
     private val b = AppEntry("sample.beta/Main", "sample.beta", "Beta", 2, "B")
     private val c = AppEntry("sample.canvas/Main", "sample.canvas", "Canvas", 2, "B")

@@ -48,3 +48,7 @@ fun firstSearchResult(query: String, items: List<HomeItem>): AppEntry? {
     if (query.isBlank()) return null
     return items.filterIsInstance<HomeItem.App>().firstOrNull { !it.favorite }?.entry
 }
+
+/** Touching the index reserves the gesture; selection begins only after drag slop. */
+fun startsIndexDrag(deltaX: Float, deltaY: Float, touchSlop: Float): Boolean =
+    deltaX * deltaX + deltaY * deltaY > touchSlop * touchSlop

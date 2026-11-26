@@ -30,7 +30,8 @@ inline fun <T, R : Any> mapAvailableItems(
     try { transform(item) } catch (failure: Exception) { onFailure(failure); null }
 }
 
-fun consumesHomeBack(drawer: Boolean, defaultHome: Boolean): Boolean = drawer || defaultHome
+fun consumesHomeBack(drawer: Boolean, defaultHome: Boolean, categoryPage: Boolean = false): Boolean =
+    drawer || categoryPage || defaultHome
 
 /** Keep saved order and filter only visibility, with no limit or destructive pruning. */
 fun visibleFavorites(ids: List<String>, apps: List<AppEntry>): List<AppEntry> {
