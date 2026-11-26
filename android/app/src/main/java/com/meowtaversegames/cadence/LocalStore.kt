@@ -15,6 +15,8 @@ class LocalStore(context: Context) {
         { write("home-theme.json", it) }, { log("home_theme_read_failed") })
     val widgets = WidgetStore({ read("widgets.json") }, { write("widgets.json", it) },
         { log("widgets_read_failed") })
+    val categories = CategoryStore({ read("categories.json") }, { write("categories.json", it) },
+        { log("categories_read_failed") })
     private val timetable = LastGoodValue<CachedTimetable>()
     private val targets = LastGoodValue<Set<String>>()
 

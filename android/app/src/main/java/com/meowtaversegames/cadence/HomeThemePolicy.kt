@@ -82,3 +82,15 @@ class HomeThemeStore(private val readFile: () -> String?, private val writeFile:
         writeFile(JsonObject(fields).toString())
     }
 }
+
+/** Category glass uses only generated texture and theme colors, never wallpaper pixels. */
+object CategoryGlass {
+    const val plateAlpha = 0.28f
+    const val highlightAlpha = 0.10f
+    const val borderTopAlpha = 0.45f
+    const val borderBottomAlpha = 0.12f
+    const val noiseAlpha = 0.04f
+    const val cornerDp = 28
+    const val borderDp = 1
+    fun plateRgb(darkText: Boolean): Int = if (darkText) 0xFFFFFF else 0x000000
+}
