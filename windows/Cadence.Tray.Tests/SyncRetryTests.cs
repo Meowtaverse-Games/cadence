@@ -14,11 +14,11 @@ public sealed class SyncRetryTests
         public FakeHttp Http { get; } = new();
         public List<string> Logs { get; } = new();
         public SyncService Service { get; }
-        public Scenario()
+        public Scenario(CancellationToken shutdown = default)
         {
             Http.Enqueue(HttpStatusCode.OK, Samples.Refresh);
             Service = new(new(new("synthetic", "synthetic-project"), Clock, Http), new MemorySessions(),
-                new(Samples.Timetable("basic"), Clock.Now), _ => { }, Clock, Logs.Add);
+                new(Samples.Timetable("basic"), Clock.Now), _ => { }, Clock, Logs.Add, shutdown: shutdown);
         }
         public void Failure() => Http.Replies.Enqueue(_ => throw new HttpRequestException());
         public void Success() => Http.Enqueue(HttpStatusCode.OK, Samples.Typed(Samples.Empty));
@@ -125,6 +125,7 @@ public sealed class SyncRetryTests
     [InlineData("http_connect", "connect")]
     [InlineData("parse", "parse")]
     [InlineData("other", "other")]
+    [InlineData("disposed", "other")]
     public async Task ExceptionsAreClassifiedWithoutLoggingPrivateDetails(string kind, string reason)
     {
         Exception failure = kind switch
@@ -135,6 +136,7 @@ public sealed class SyncRetryTests
             "socket_connect" => new SocketException((int)SocketError.ConnectionRefused),
             "http_connect" => new HttpRequestException(),
             "parse" => new JsonException("synthetic-private-message"),
+            "disposed" => new ObjectDisposedException("synthetic-private-object"),
             _ => new IOException("synthetic-private-message")
         };
         using var s = new Scenario();
@@ -186,6 +188,62 @@ public sealed class SyncRetryTests
             Assert.Equal(problem, s.Service.State.Problem);
         }
         else Assert.True(s.Service.TakeAuthNotification());
+    }
+
+    [Theory]
+    [InlineData("signed_out", null)]
+    [InlineData("INVALID_REFRESH_TOKEN", null)]
+    [InlineData("UNKNOWN", null)]
+    [InlineData("missing_document", "サーバーに時間割がありません")]
+    public async Task SuccessfulSignInClearsOnlyOldAuthenticationProblemBeforeTransientFetchFailure(string origin, string? expectedProblem)
+    {
+        using var s = new Scenario();
+        if (origin == "signed_out") await s.Service.SignOutAsync();
+        else
+        {
+            if (origin == "missing_document") s.Http.Enqueue(HttpStatusCode.NotFound, "{}");
+            else
+            {
+                s.Http.Replies.Clear();
+                s.Http.Enqueue(HttpStatusCode.BadRequest, "{\"error\":{\"message\":\"" + origin + "\"}}");
+            }
+            await s.Service.SyncAsync();
+        }
+        Assert.NotNull(s.Service.State.Problem);
+        s.Http.Replies.Clear();
+        s.Http.Enqueue(HttpStatusCode.OK, Samples.Login);
+        s.Failure();
+        Assert.Null(await s.Service.SignInAsync("example@example.invalid", "synthetic-password"));
+        Assert.Null(s.Service.AuthProblem);
+        Assert.Equal(expectedProblem, s.Service.State.Problem);
+        Assert.False(s.Service.TakeAuthNotification());
+        Assert.False(s.Service.RetryCompletion.IsCompleted);
+        s.Success();
+        await s.AdvanceRetry();
+        Assert.Null(s.Service.State.Problem);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ShutdownOrDisposeCancelsSignInRetryWithoutCallerToken(bool shutdown)
+    {
+        using var lifetime = new CancellationTokenSource();
+        using var s = new Scenario(lifetime.Token);
+        s.Http.Replies.Clear();
+        s.Http.Enqueue(HttpStatusCode.OK, Samples.Login);
+        s.Failure();
+        Assert.Null(await s.Service.SignInAsync("example@example.invalid", "synthetic-password"));
+        Assert.False(s.Service.RetryCompletion.IsCompleted);
+        Assert.Contains("sync_retry_scheduled", s.Logs);
+        var logsBeforeShutdown = s.Logs.ToArray();
+        if (shutdown) lifetime.Cancel();
+        else s.Service.Dispose();
+        s.Success();
+        await s.AdvanceRetry();
+        Assert.Equal(2, s.Http.Calls);
+        Assert.Equal(logsBeforeShutdown, s.Logs);
+        Assert.Single(s.Http.Replies);
     }
 
     [Fact]
@@ -260,4 +318,33 @@ public sealed class SyncRetryTests
         Assert.Equal(3, s.Http.Calls);
         Assert.Null(s.Service.State.Problem);
     }
+
+    [Fact]
+    public async Task RetryBecomingDueDuringPeriodicFetchSkipsBusyGateWithoutCancellingFetch()
+    {
+        using var s = new Scenario();
+        s.Failure();
+        await s.Service.SyncAsync();
+        var pendingRetry = s.Service.RetryCompletion;
+        var reply = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        s.Http.Replies.Enqueue(_ => reply.Task);
+        var periodic = s.Service.SyncAsync();
+        Assert.True(s.Service.IsSynchronizing);
+        // This reservation must still be waiting, not cancelled by the periodic tick.
+        Assert.False(pendingRetry.IsCompleted);
+        s.Clock.Advance(TimeSpan.FromSeconds(10));
+        await pendingRetry.WaitAsync(TimeSpan.FromSeconds(5));
+        // The retry completed while the periodic fetch still holds the gate.
+        Assert.False(periodic.IsCompleted);
+        Assert.True(s.Service.IsSynchronizing);
+        Assert.Equal(3, s.Http.Calls);
+        reply.SetResult(new(HttpStatusCode.OK) { Content = new StringContent(Samples.Typed(Samples.Empty)) });
+        await periodic.WaitAsync(TimeSpan.FromSeconds(5));
+        s.Clock.Advance(TimeSpan.FromSeconds(60));
+        Assert.Equal(3, s.Http.Calls);
+        Assert.Null(s.Service.State.Problem);
+        Assert.Single(s.Logs, line => line == "sync_retry_scheduled");
+        Assert.DoesNotContain(s.Logs, line => line.StartsWith("sync_retry_failed"));
+    }
+
 }

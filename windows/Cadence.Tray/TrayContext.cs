@@ -41,7 +41,7 @@ internal sealed class TrayContext : ApplicationContext
         configuration = FirebaseConfig.Load(files.PathFor("cadence-firebase.json"), directlyUnderAppDataPath);
         log.Write(configuration.Code);
         service = new(configuration.Config is { } config ? new FirebaseClient(config, clock, new HttpClientHandler()) : null,
-            new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write);
+            new DpapiSessionStore(files.PathFor("session.dat")), files.LoadCache(), files.SaveCache, clock, log.Write, shutdown: shutdown.Token);
         openSettingsOnStartup = StartupSettings.ShouldOpen(configuration.Usable, service.HasSavedSession);
         var menu = new ContextMenuStrip();
         menu.Items.Add(stateMenu);

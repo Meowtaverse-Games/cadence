@@ -48,6 +48,11 @@ public sealed class SyncState
         return null;
     }
     public void SetProblem(string problem) => Problem = problem;
+    public void ClearAuthenticationProblem()
+    {
+        if (Problem is "サインインが必要です" or "認証の設定を確認してください（次の周期で再試行）")
+            Problem = null;
+    }
 }
 
 // All mutations are serialized, including sign-out vs an in-flight refresh/fetch.
@@ -59,6 +64,7 @@ public sealed class SyncService : IDisposable
     private readonly Action<string> log;
     private readonly TimeProvider clock;
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly CancellationTokenSource lifetime;
     private SavedSession? saved;
     private AuthToken? token;
     private CancellationTokenSource? retryCancellation;
@@ -79,8 +85,9 @@ public sealed class SyncService : IDisposable
     public string? AuthProblem => !Configured ? "接続設定がないか不正なためサインインできません" : saved is null ? "サインインが必要です" : null;
 
     public SyncService(FirebaseClient? client, ISessionStore sessions, TimetableCache? cache,
-        Action<TimetableCache> saveCache, TimeProvider clock, Action<string>? log = null)
+        Action<TimetableCache> saveCache, TimeProvider clock, Action<string>? log = null, CancellationToken shutdown = default)
     {
+        lifetime = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
         this.client = client;
         this.sessions = sessions;
         this.saveCache = saveCache;
@@ -133,6 +140,7 @@ public sealed class SyncService : IDisposable
             var fresh = await client.SignInAsync(email, password, cancellation);
             token = fresh;
             saved = new(fresh.RefreshToken, email);
+            State.ClearAuthenticationProblem();
             authNotified = false;
             authNotificationPending = false;
             PersistSession();
@@ -166,16 +174,19 @@ public sealed class SyncService : IDisposable
         if (!await gate.WaitAsync(0, cancellation)) return;
         try
         {
+            // Keep the reservation while fetching: if it becomes due, its gate
+            // check skips it. Once this cycle finishes, replace any old reservation.
+            var reason = await SyncLockedAsync(cancellation);
             CancelRetry();
-            ScheduleRetry(await SyncLockedAsync(cancellation), cancellation);
+            ScheduleRetry(reason, cancellation);
         }
         finally { gate.Release(); }
     }
 
     private void ScheduleRetry(string? reason, CancellationToken cancellation)
     {
-        if (reason is null || disposed || cancellation.IsCancellationRequested) return;
-        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        if (reason is null || disposed || lifetime.IsCancellationRequested || cancellation.IsCancellationRequested) return;
+        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
         retryCancellation = source;
         log("sync_retry_scheduled");
         RetryCompletion = RetryAsync(source);
@@ -292,6 +303,7 @@ public sealed class SyncService : IDisposable
         {
             HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "dns",
             HttpRequestException => "connect",
+            ObjectDisposedException => "other",
             JsonException or FormatException or InvalidOperationException or KeyNotFoundException or OverflowException => "parse",
             _ => "other"
         };
@@ -334,8 +346,11 @@ public sealed class SyncService : IDisposable
     }
     public void Dispose()
     {
+        if (disposed) return;
         disposed = true;
+        lifetime.Cancel();
         CancelRetry();
         client?.Dispose();
+        lifetime.Dispose();
     }
 }
