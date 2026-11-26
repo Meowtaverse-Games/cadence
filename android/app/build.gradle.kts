@@ -43,6 +43,11 @@ kotlin {
 }
 
 dependencies {
+    constraints {
+        implementation(libs.androidx.fragment) {
+            because("Firebase transitive Fragment must support the existing Activity Result API")
+        }
+    }
     implementation(project(":core"))
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)

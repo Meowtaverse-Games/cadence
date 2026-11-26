@@ -3,6 +3,7 @@ agp = "9.5.2"
 kotlin = "2.4.21"
 compose-bom = "2026.11.01"
 activity = "1.13.0"
+fragment = "1.9.1"
 junit = "4.13.2"
 mockito = "5.14.2"
 serialization-json = "1.13.0"
@@ -11,6 +12,7 @@ firebase-bom = "35.2.0"
 google-services = "4.6.0"
 
 [libraries]
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
 mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-auth = { module = "com.google.firebase:firebase-auth" }
