@@ -3,8 +3,6 @@ package com.meowtaversegames.cadence
 import java.text.Normalizer
 import java.util.Locale
 
-const val FAVORITE_LIMIT = 8
-
 /** IDs are flattened launcher components, not package names (one package can have several entries). */
 data class AppEntry(
     val id: String,
@@ -15,13 +13,9 @@ data class AppEntry(
     val canUninstall: Boolean = true,
 )
 data class AppSection(val bucket: Int, val heading: String, val apps: List<AppEntry>)
-data class FavoriteChange(val ids: List<String>, val limitReached: Boolean = false)
-
-fun addFavorite(ids: List<String>, id: String, installedIds: Set<String>? = null): FavoriteChange = when {
-    id in ids -> FavoriteChange(ids)
-    installedFavoriteCount(ids, installedIds) >= FAVORITE_LIMIT -> FavoriteChange(ids, limitReached = true)
-    else -> FavoriteChange(ids + id)
-}
+/** Unknown inventory prevents additions; temporary disappearance never prunes saved IDs. */
+fun addFavorite(ids: List<String>, id: String, installedIds: Set<String>?): List<String> =
+    if (installedIds == null || id in ids) ids else ids + id
 fun removeFavorite(ids: List<String>, id: String): List<String> = ids.filterNot { it == id }
 /** Only a definitive package removal may discard unavailable saved components. */
 fun removePackageFavorites(ids: List<String>, packageName: String): List<String> =
@@ -38,13 +32,10 @@ inline fun <T, R : Any> mapAvailableItems(
 
 fun consumesHomeBack(drawer: Boolean, defaultHome: Boolean): Boolean = drawer || defaultHome
 
-fun installedFavoriteCount(ids: List<String>, installedIds: Set<String>?): Int =
-    if (installedIds == null) ids.size else ids.count { it in installedIds }
-
-/** Filter before limiting: dormant IDs never occupy a visible slot. Restored overflow stays saved. */
+/** Keep saved order and filter only visibility, with no limit or destructive pruning. */
 fun visibleFavorites(ids: List<String>, apps: List<AppEntry>): List<AppEntry> {
     val byId = apps.associateBy { it.id }
-    return ids.mapNotNull { byId[it] }.take(FAVORITE_LIMIT)
+    return ids.mapNotNull { byId[it] }
 }
 
 fun canMoveFavorite(visibleIds: List<String>, id: String, direction: Int): Boolean {

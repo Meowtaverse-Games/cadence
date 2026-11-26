@@ -13,7 +13,8 @@ data class HomeIndexEntry(val label: String, val position: Int)
 data class HomeLayout(val items: List<HomeItem>, val index: List<HomeIndexEntry>)
 
 /** One source of truth for rows and index offsets, after visibility and search filtering. */
-fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: String, widgets: List<SavedWidget> = emptyList()): HomeLayout {
+fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: String, widgets: List<SavedWidget> = emptyList(),
+    favoritesFailed: Boolean = false): HomeLayout {
     val visible = sections.mapNotNull { section ->
         section.apps.filter { matchesApp(it.label, query) }.takeIf { it.isNotEmpty() }?.let { section.copy(apps = it) }
     }
@@ -22,9 +23,8 @@ fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: Strin
         if (query.isEmpty()) {
             add(HomeItem.Fixed("header"))
             widgets.forEach { add(HomeItem.Widget(it)) }
-            add(HomeItem.Fixed("favorites"))
             val apps = visibleFavorites(favorites, sections.flatMap { it.apps })
-            if (apps.isEmpty()) add(HomeItem.Fixed("empty-favorites"))
+            if (favorites.isEmpty() && !favoritesFailed) add(HomeItem.Fixed("empty-favorites"))
             apps.forEach { add(HomeItem.App(it, favorite = true)) }
         }
         add(HomeItem.Fixed("all-apps"))

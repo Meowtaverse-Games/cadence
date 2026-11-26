@@ -55,7 +55,7 @@ class LocalStore(context: Context) {
         ReadValue(emptyList(), true)
     }
 
-    // Unavailable saved IDs do not consume installed slots and may exceed the visible limit.
+    // Preserve every saved ID, including temporarily unavailable components.
     @Synchronized
     fun saveFavorites(ids: List<String>) {
         check(!readFavorites().failed) { "Unreadable favorites must be preserved" }

@@ -28,9 +28,9 @@ class HomeLayoutTest {
 
     @Test fun rowsAndIndexSharePositionsIncludingFavorites() {
         val layout = homeLayout(sections, listOf(b.id, a.id), "")
-        assertEquals(listOf("header", "favorites", "favorite-${b.id}", "favorite-${a.id}",
+        assertEquals(listOf("header", "favorite-${b.id}", "favorite-${a.id}",
             "all-apps", "heading-1", "app-${a.id}", "heading-2", "app-${b.id}", "app-${c.id}"), layout.items.map { it.key })
-        assertEquals(listOf(HomeIndexEntry("↑", 0), HomeIndexEntry("A", 5), HomeIndexEntry("B", 7)), layout.index)
+        assertEquals(listOf(HomeIndexEntry("↑", 0), HomeIndexEntry("A", 4), HomeIndexEntry("B", 6)), layout.index)
         assertEquals(layout.items.size, layout.items.map { it.key }.distinct().size)
     }
     @Test fun hiddenSectionAndHiddenFavoriteDoNotShiftIndexIncorrectly() {
@@ -47,7 +47,7 @@ class HomeLayoutTest {
     }
     @Test fun emptyAndNoResultsKeepTopIndex() {
         val empty = homeLayout(emptyList(), emptyList(), "")
-        assertEquals(listOf("header", "favorites", "empty-favorites", "all-apps", "empty-apps"), empty.items.map { it.key })
+        assertEquals(listOf("header", "empty-favorites", "all-apps", "empty-apps"), empty.items.map { it.key })
         assertEquals(listOf(HomeIndexEntry("↑", 0)), empty.index)
         val search = homeLayout(sections, emptyList(), "missing")
         assertEquals(listOf("all-apps", "empty-apps"), search.items.map { it.key })
@@ -56,9 +56,30 @@ class HomeLayoutTest {
     @Test fun widgetsAreIndividualRowsAndIndexFollowsTheirCount() {
         val widgets = listOf(SavedWidget(11, "sample.clock/Widget", 72f), SavedWidget(12, "sample.weather/Widget", 144f))
         val layout = homeLayout(sections, listOf(b.id), "", widgets)
-        assertEquals(listOf("header", "widget-11", "widget-12", "favorites", "favorite-${b.id}"), layout.items.take(5).map { it.key })
+        assertEquals(listOf("header", "widget-11", "widget-12", "favorite-${b.id}"), layout.items.take(4).map { it.key })
         layout.index.drop(1).forEach { assertTrue(layout.items[it.position] is HomeItem.Heading) }
         assertTrue(homeLayout(sections, emptyList(), "Beta", widgets).items.none { it is HomeItem.Widget })
+    }
+    @Test fun dormantFavoritesDoNotShowEmptyHintOrHeading() {
+        val layout = homeLayout(sections, listOf("sample.missing/Main"), "")
+        assertEquals(listOf("header", "all-apps"), layout.items.take(2).map { it.key })
+        assertFalse(layout.items.any { it.key == "favorites" || it.key == "empty-favorites" })
+    }
+    @Test fun unreadableFavoritesHideEmptyHintAndRecoveryRestoresIt() {
+        val failed = homeLayout(sections, emptyList(), "", favoritesFailed = true)
+        assertFalse(failed.items.any { it.key == "empty-favorites" })
+        assertEquals(listOf("header", "all-apps"), failed.items.take(2).map { it.key })
+        failed.index.drop(1).forEach { assertTrue(failed.items[it.position] is HomeItem.Heading) }
+        val recovered = homeLayout(sections, emptyList(), "", favoritesFailed = false)
+        assertTrue(recovered.items.any { it.key == "empty-favorites" })
+        recovered.index.drop(1).forEach { assertTrue(recovered.items[it.position] is HomeItem.Heading) }
+    }
+    @Test fun unlimitedFavoritesStillKeepAccurateIndexPositions() {
+        val apps = (1..20).map { a.copy(id = "sample.app$it/Main") }
+        val layout = homeLayout(listOf(AppSection(1, "A", apps)), apps.map { it.id }, "")
+        assertEquals(20, layout.items.filterIsInstance<HomeItem.App>().count { it.favorite })
+        assertEquals(22, layout.index.last().position)
+        assertTrue(layout.items[22] is HomeItem.Heading)
     }
     @Test fun indexSelectionClampsAndHandlesInvalidDimensions() {
         assertEquals(0, indexAt(-5f, 100f, 4))

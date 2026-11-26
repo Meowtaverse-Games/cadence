@@ -8,16 +8,15 @@ class LauncherPolicyTest {
         AppEntry(id, pkg, label, bucket, heading)
 
     @Test fun addsFavoritesInUserOrderWithoutDuplicates() {
-        assertEquals(FavoriteChange(listOf("b", "a")), addFavorite(listOf("b"), "a"))
-        assertEquals(FavoriteChange(listOf("b", "a")), addFavorite(listOf("b", "a"), "b"))
+        assertEquals(listOf("b", "a"), addFavorite(listOf("b"), "a", setOf("a", "b")))
+        assertEquals(listOf("b", "a"), addFavorite(listOf("b", "a"), "b", setOf("a", "b")))
     }
-    @Test fun eighthFavoriteFitsButNinthIsRejected() {
-        val seven = (1..7).map { "app$it" }
-        val eight = addFavorite(seven, "eighth")
-        assertFalse(eight.limitReached)
-        assertEquals(8, eight.ids.size)
-        assertEquals(FavoriteChange(eight.ids, true), addFavorite(eight.ids, "ninth"))
-        assertFalse(addFavorite(eight.ids, "eighth").limitReached)
+    @Test fun favoritesHaveNoCountLimitInStorageOrDisplay() {
+        val ids = (1..100).map { "app$it" }
+        var saved = emptyList<String>()
+        ids.forEach { saved = addFavorite(saved, it, ids.toSet()) }
+        assertEquals(ids, saved)
+        assertEquals(ids, visibleFavorites(saved, ids.map { app(it) }).map { it.id })
     }
     @Test fun removesOnlyTheRequestedFavorite() {
         assertEquals(listOf("a", "c"), removeFavorite(listOf("a", "b", "c"), "b"))
@@ -44,15 +43,12 @@ class LauncherPolicyTest {
         assertEquals(ids, moveVisibleFavorite(ids, visible, "b", 1))
         assertEquals(ids, moveVisibleFavorite(ids, visible, "missing", 1))
     }
-    @Test fun unavailableFavoriteFreesSlotWithoutErasingSavedId() {
-        val ids = (1..8).map { "app$it" }
+    @Test fun unavailableFavoriteSurvivesAdditionalFavorites() {
+        val ids = (1..12).map { "app$it" }
         val installed = (ids - "app4" + "new").toSet()
-        assertEquals(7, installedFavoriteCount(ids, installed))
         val added = addFavorite(ids, "new", installed)
-        assertFalse(added.limitReached)
-        assertEquals(ids + "new", added.ids)
-        assertTrue(addFavorite(added.ids, "ninth", installed).limitReached)
-        assertEquals(8, installedFavoriteCount(added.ids, installed))
+        assertEquals(ids + "new", added)
+        assertEquals(ids - "app4" + "new", visibleFavorites(added, installed.map { app(it) }).map { it.id })
     }
     @Test fun onlyConfirmedPackageRemovalErasesAllItsComponents() {
         val ids = listOf("sample.one/First", "sample.two/Main", "sample.one/Second", "sample.one.more/Main")
@@ -64,28 +60,26 @@ class LauncherPolicyTest {
         val inventory = listOf(app("a"), app("b"))
         val visible = visibleFavorites(ids, inventory).map { it.id }
         assertEquals(listOf("a", "b"), visible)
-        assertEquals(2, installedFavoriteCount(ids, inventory.map { it.id }.toSet()))
         val moved = moveVisibleFavorite(ids, visible, "a", 1)
         assertEquals(listOf("b", "missing", "a"), moved)
         assertFalse(canMoveFavorite(visible, "b", 1))
         val restored = inventory + app("missing")
         assertEquals(moved, visibleFavorites(moved, restored).map { it.id })
     }
-    @Test fun returningAppsKeepSavedIdsButHomeShowsAtMostEight() {
+    @Test fun returningAppsAndLaterAdditionsAreAllVisibleInSavedOrder() {
         val ids = (1..8).map { "app$it" }
         val available = (ids - "app1" + "new").map { app(it) }
-        val saved = addFavorite(ids, "new", available.map { it.id }.toSet()).ids
+        val saved = addFavorite(ids, "new", available.map { it.id }.toSet())
         assertEquals(ids + "new", saved)
         assertEquals(ids - "app1" + "new", visibleFavorites(saved, available).map { it.id })
-        assertEquals(ids, visibleFavorites(saved, available + app("app1")).map { it.id })
+        assertEquals(ids + "new", visibleFavorites(saved, available + app("app1")).map { it.id })
         assertEquals(ids + "new", saved)
         assertEquals(ids - "app1" + "new", visibleFavorites(removeFavorite(saved, "app1"), available).map { it.id })
     }
     @Test fun emptyInventoryDoesNotPreventAddingWithoutDeletingDormantIds() {
         val ids = (1..8).map { "app$it" }
-        assertEquals(0, installedFavoriteCount(ids, emptySet()))
-        assertEquals(ids + "new", addFavorite(ids, "new", setOf("new")).ids)
-        assertEquals(ids, addFavorite(ids, "new", null).ids)
+        assertEquals(ids + "new", addFavorite(ids, "new", setOf("new")))
+        assertEquals(ids, addFavorite(ids, "new", null))
     }
     @Test fun perItemFailureKeepsOtherItemsInOrderAndReportsEachFailure() {
         for (failed in 1..3) {
@@ -108,17 +102,16 @@ class LauncherPolicyTest {
         assertTrue(consumesHomeBack(drawer = false, defaultHome = true))
         assertFalse(consumesHomeBack(drawer = false, defaultHome = false))
     }
-    @Test fun blockedFavoritesStillOccupySlotsAndAreNeverPruned() {
-        val ids = (1..8).map { "app$it" }
-        val installed = ids.toSet()
+    @Test fun blockedFavoritesAreNeverPrunedOrCountLimited() {
+        val ids = (1..12).map { "app$it" }
         val visible = ids - "app2"
-        assertEquals(8, installedFavoriteCount(ids, installed))
         assertEquals(listOf("app3", "app2", "app1") + ids.drop(3),
             moveVisibleFavorite(ids, visible, "app1", 1))
-        assertTrue(addFavorite(ids, "ninth").limitReached)
+        assertEquals(ids + "new", addFavorite(ids, "new", (ids + "new").toSet()))
     }
-    @Test fun unknownInventoryUsesSavedCountUntilFirstSuccess() {
-        assertEquals(2, installedFavoriteCount(listOf("a", "b"), null))
+    @Test fun unknownInventoryPreventsAdditionsWithoutDeletingSavedIds() {
+        val ids = listOf("a", "b")
+        assertEquals(ids, addFavorite(ids, "c", null))
     }
     @Test fun restingCountUsesDistinctInstalledPackagesOnly() {
         val apps = listOf(app("one", pkg = "synthetic.blocked"), app("two", pkg = "synthetic.blocked"), app("safe"))
