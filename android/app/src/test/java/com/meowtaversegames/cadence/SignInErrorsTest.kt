@@ -4,7 +4,6 @@ import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
-import com.google.firebase.firestore.FirebaseFirestoreException
 import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.Mockito.mock
@@ -41,16 +40,14 @@ class SignInErrorsTest {
         assertEquals("ERROR_USER_DISABLED", signInErrorCode(failure))
     }
     @Test fun wrappedInvalidUserStopsListenerRetries() {
-        val error = mock(FirebaseFirestoreException::class.java)
         val cause = mock(FirebaseAuthInvalidUserException::class.java)
-        `when`(error.cause).thenReturn(cause)
-        assertEquals("UNAUTHENTICATED", listenerErrorCode(error))
-        assertFalse(listenerFailure(listenerErrorCode(error)).retry)
+        val error = IllegalStateException("synthetic", cause)
+        assertEquals("UNAUTHENTICATED", listenerErrorCode(error, "UNKNOWN"))
+        assertFalse(listenerFailure(listenerErrorCode(error, "UNKNOWN")).retry)
     }
     @Test fun ordinaryListenerErrorsKeepTheirSdkCode() {
-        val error = mock(FirebaseFirestoreException::class.java)
-        `when`(error.code).thenReturn(FirebaseFirestoreException.Code.PERMISSION_DENIED)
-        assertEquals("PERMISSION_DENIED", listenerErrorCode(error))
+        val error = IllegalStateException("synthetic")
+        assertEquals("PERMISSION_DENIED", listenerErrorCode(error, "PERMISSION_DENIED"))
     }
 
 }

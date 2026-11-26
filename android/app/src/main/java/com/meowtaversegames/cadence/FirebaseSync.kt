@@ -14,7 +14,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.MetadataChanges
 import java.time.Instant
 
@@ -55,7 +54,7 @@ class FirebaseSync(private val context: Context, store: LocalStore, changed: () 
             listen = { uid, callbacks ->
                 val registration = firestore!!.collection("users").document(uid).collection("config").document("timetable")
                     .addSnapshotListener(context.mainExecutor, MetadataChanges.INCLUDE) { snapshot, error ->
-                        if (error != null) callbacks.error(listenerErrorCode(error))
+                        if (error != null) callbacks.error(listenerErrorCode(error, error.code.name))
                         else if (snapshot != null) callbacks.snapshot(
                             if (snapshot.exists()) firestoreValue(snapshot.data) else null,
                             snapshot.metadata.isFromCache, Instant.now())
@@ -176,10 +175,10 @@ internal fun signInErrorCode(error: Exception?): String? = when (error) {
 }
 
 /** A disabled/deleted user's token failure can be wrapped by a Firestore exception. */
-internal fun listenerErrorCode(error: FirebaseFirestoreException): String {
+internal fun listenerErrorCode(error: Throwable, fallbackCode: String): String {
     val authFailure = generateSequence<Throwable>(error) { it.cause }
         .filterIsInstance<FirebaseAuthException>().firstOrNull()
     if (authFailure is FirebaseAuthInvalidUserException) return "UNAUTHENTICATED"
     if (authFailure != null && !listenerFailure(authFailure.errorCode).retry) return "UNAUTHENTICATED"
-    return error.code.name
+    return fallbackCode
 }
