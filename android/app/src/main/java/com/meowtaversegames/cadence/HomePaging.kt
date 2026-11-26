@@ -30,6 +30,20 @@ fun ownsHomePageContent(virtualPage: Int, current: Int, offset: Float, pageCount
 fun nearestHomePage(current: Int, page: Int, pageCount: Int): Int =
     homePageContentOwner(page, current, 0f, pageCount)
 
+/** Only the labelled page indicator exposes the two custom paging actions. */
+fun homePageIndicatorActionsEnabled(pageCount: Int, searching: Boolean, indexing: Boolean,
+    searchFocused: Boolean): Boolean = pageCount > 1 && !searching && !indexing && !searchFocused
+
+/** Keep the requested direction even with two pages; wrap at finite virtual edges. */
+fun adjacentHomePage(current: Int, direction: Int, pageCount: Int): Int? {
+    require(pageCount > 0)
+    require(direction == -1 || direction == 1)
+    if (pageCount == 1) return null
+    val adjacent = current + direction
+    return if (adjacent in 0 until VIRTUAL_HOME_PAGES) adjacent
+    else nearestHomePage(current, realHomePage(adjacent, pageCount), pageCount)
+}
+
 /** HOME retains the current virtual coordinate when it already represents home. */
 fun homePagerDestination(current: Int, previousIds: List<String>, nextIds: List<String>, homeRequested: Boolean): Int {
     if (nextIds.isEmpty()) return 0
