@@ -18,26 +18,35 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.unit.dp
 import java.util.Random
+import kotlinx.coroutines.flow.collect
 
-private class PagerMemory {
-    var ids: List<String> = emptyList()
-    var request: Int = 0
-    var pager: PagerState? = null
-}
+private class PagerMemory(var ids: List<String>, var request: Int)
 
-/** Rebuild the virtual coordinates atomically while retaining the logical category identity.
- * HOME creates a centered standard page immediately, without a launched scroll coroutine. */
+/** Keep the pager and its composed virtual page on HOME; change coordinates synchronously. */
 @Composable
 fun rememberHomePager(categoryIds: List<String>, homeRequest: Int): PagerState {
-    val memory = remember { PagerMemory() }
-    return remember(categoryIds, homeRequest) {
-        val previousId = memory.pager?.let { homePageId(it.currentPage, memory.ids) }
-        val page = if (memory.request != homeRequest) 0 else retainedHomePage(previousId, categoryIds)
-        val count = categoryIds.size + 1
-        PagerState(currentPage = if (count == 1) 0 else centeredHomePage(page, count), pageCount = {
-            if (count == 1) 1 else VIRTUAL_HOME_PAGES
-        }).also { memory.ids = categoryIds; memory.request = homeRequest; memory.pager = it }
+    val count = categoryIds.size + 1
+    val currentCount = rememberUpdatedState(count)
+    val pager = remember {
+        PagerState(currentPage = if (count == 1) 0 else centeredHomePage(0, count), pageCount = {
+            if (currentCount.value == 1) 1 else VIRTUAL_HOME_PAGES
+        })
     }
+    val memory = remember { PagerMemory(categoryIds, homeRequest) }
+    if (memory.ids != categoryIds || memory.request != homeRequest) {
+        val destination = homePagerDestination(pager.currentPage, memory.ids, categoryIds, memory.request != homeRequest)
+        memory.ids = categoryIds
+        memory.request = homeRequest
+        // requestScrollToPage applies on the next remeasure without an animation/coroutine.
+        // Even an unchanged page resets a partial drag's offset on HOME.
+        pager.requestScrollToPage(destination)
+    }
+    LaunchedEffect(pager, count) {
+        snapshotFlow { pager.currentPage to pager.isScrollInProgress }.collect { (page, scrolling) ->
+            recenteredHomePage(page, count, scrolling)?.let { pager.requestScrollToPage(it) }
+        }
+    }
+    return pager
 }
 
 // One small generated tile per process. No wallpaper access or allocation during drawing.
@@ -59,11 +68,13 @@ fun Modifier.homeEntranceMotion(state: EntranceMotionState, key: String): Modifi
 
 @Composable
 fun CategoryPage(category: HomeCategory, snapshot: LauncherSnapshot, listState: LazyListState,
-    presentation: HomePresentation, size: HomeSize, hasBlockedApps: Boolean, motionEnabled: Boolean, homeRequest: Int,
+    presentation: HomePresentation, size: HomeSize, inventory: List<AppEntry>, targets: Set<String>, blocked: Boolean,
+    motionEnabled: Boolean, homeRequest: Int,
     onLaunch: (AppEntry) -> Unit, onMenu: (AppEntry) -> Unit,
     onSettings: () -> Unit, onOpenClock: () -> Unit, onOpenCalendar: () -> Unit,
     onAddWidget: () -> Unit, widgetAddReason: String?) {
-    val apps = visibleFavorites(category.appIds, snapshot.apps)
+    val apps = visibleCategoryApps(category, inventory, targets, blocked)
+    val hasBlockedApps = visibleCategoryApps(category, inventory, targets, false).size > apps.size
     val rows = remember(apps) { apps.map { HomeItem.App(it) } }
     val motion = rememberEntranceMotion(listState, rows, motionEnabled, homeRequest)
     val colors = LocalHomeColors.current

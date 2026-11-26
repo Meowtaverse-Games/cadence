@@ -89,6 +89,7 @@ class CategoryPolicyTest {
     @Test fun blockingAndMissingInventoryOnlyAffectVisibility() {
         val category = category(listOf(beta.id, hidden, alpha.id))
         assertEquals(listOf(beta), visibleCategoryApps(category, apps, setOf(alpha.packageName), true))
+        assertTrue(visibleCategoryApps(category, apps, apps.map { it.packageName }.toSet(), true).isEmpty())
         assertEquals(listOf(beta, alpha), visibleCategoryApps(category, apps, setOf(alpha.packageName), false))
         assertEquals(listOf(beta.id, hidden, alpha.id), category.appIds)
     }

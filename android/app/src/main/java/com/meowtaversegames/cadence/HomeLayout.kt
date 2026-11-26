@@ -14,13 +14,13 @@ data class HomeLayout(val items: List<HomeItem>, val index: List<HomeIndexEntry>
 
 /** One source of truth for rows and index offsets, after visibility and search filtering. */
 fun homeLayout(sections: List<AppSection>, favorites: List<String>, query: String, widgets: List<SavedWidget> = emptyList(),
-    favoritesFailed: Boolean = false, searching: Boolean = query.isNotEmpty()): HomeLayout {
+    favoritesFailed: Boolean = false): HomeLayout {
     val visible = sections.mapNotNull { section ->
         section.apps.filter { matchesApp(it.label, query) }.takeIf { it.isNotEmpty() }?.let { section.copy(apps = it) }
     }
     val index = mutableListOf(HomeIndexEntry("↑", 0))
     val rows = buildList {
-        if (!searching) {
+        if (query.isEmpty()) {
             add(HomeItem.Fixed("header"))
             widgets.forEach { add(HomeItem.Widget(it)) }
             val apps = visibleFavorites(favorites, sections.flatMap { it.apps })
@@ -48,3 +48,7 @@ fun firstSearchResult(query: String, items: List<HomeItem>): AppEntry? {
     if (query.isBlank()) return null
     return items.filterIsInstance<HomeItem.App>().firstOrNull { !it.favorite }?.entry
 }
+
+/** Touching the index reserves the gesture; selection begins only after drag slop. */
+fun startsIndexDrag(deltaX: Float, deltaY: Float, touchSlop: Float): Boolean =
+    deltaX * deltaX + deltaY * deltaY > touchSlop * touchSlop

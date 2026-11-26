@@ -12,7 +12,7 @@ class HomePagingTest {
         for (count in 1..100) for (page in 0 until count) {
             val virtual = centeredHomePage(page, count)
             assertEquals(page, realHomePage(virtual, count))
-            assertTrue(virtual in 1_000_000_000..1_100_000_000)
+            assertTrue(virtual in 49_900..50_100)
         }
     }
     @Test fun changingCountAndOrderRetainsCategoryIdentity() {
@@ -33,11 +33,95 @@ class HomePagingTest {
     @Test fun backUsesClosestHomeAcrossWrapAndStaysWithinVirtualBounds() {
         assertEquals(102, nearestHomePage(101, 0, 3))
         assertEquals(99, nearestHomePage(100, 0, 3))
-        for (current in listOf(0, 1, Int.MAX_VALUE - 2)) {
+        for (current in listOf(0, 1, VIRTUAL_HOME_PAGES - 2)) {
             val next = nearestHomePage(current, 0, 4)
             assertTrue(next >= 0 && next < VIRTUAL_HOME_PAGES)
             assertEquals(0, realHomePage(next, 4))
         }
+    }
+    @Test fun exactlyOneVirtualPageOwnsEachRealPageIncludingPrefetchAndFiniteEdges() {
+        for (count in 1..3) {
+            for (current in listOf(0, 1, 50_000, 50_001, VIRTUAL_HOME_PAGES - 1)) {
+                for (offset in listOf(-0.5f, -0.25f, 0f, 0.25f, 0.5f)) {
+                    val owners = (current - 6..current + 6).filter { it in 0 until VIRTUAL_HOME_PAGES }
+                        .filter { ownsHomePageContent(it, current, offset, count) }
+                    assertEquals(count, owners.size)
+                    assertEquals((0 until count).toSet(), owners.map { realHomePage(it, count) }.toSet())
+                }
+            }
+        }
+    }
+    @Test fun visiblePagesNeverBecomeEmptyDuringForwardReverseAndCancelledDrags() {
+        for (count in 2..3) {
+            // Includes both sides of the half-page currentPage change and a completed cycle.
+            val positions = listOf(0.0, 0.01, 0.49, 0.5, 0.51, 0.99, 1.0, 1.01,
+                1.49, 1.51, 2.0, 2.51, 3.0, 2.51, 1.01, 0.51, 0.49, 0.01, 0.0, -0.01, -0.51, -1.0, 0.0)
+            for (relative in positions) {
+                val position = 50_000 + relative
+                val current = kotlin.math.floor(position + 0.5).toInt()
+                val offset = (position - current).toFloat()
+                for (virtual in current - 4..current + 4) {
+                    if (kotlin.math.abs(virtual - position) < 1.0) {
+                        assertTrue("count=$count position=$position visible=$virtual",
+                            ownsHomePageContent(virtual, current, offset, count))
+                    }
+                }
+            }
+        }
+    }
+    @Test fun equidistantCopiesAlwaysGiveContentToTheLowerCoordinate() {
+        for (count in 1..3) {
+            val lower = 60_000
+            val current = lower + count / 2
+            val offset = if (count % 2 == 0) 0f else 0.5f
+            assertTrue(ownsHomePageContent(lower, current, offset, count))
+            assertFalse(ownsHomePageContent(lower + count, current, offset, count))
+            assertEquals(lower, homePageContentOwner(lower, current, offset - 0.001f, count))
+            assertEquals(lower + count, homePageContentOwner(lower, current, offset + 0.001f, count))
+        }
+    }
+    @Test fun homeAfterFullCyclesKeepsTheSameVirtualPage() {
+        for (ids in listOf(listOf("work"), listOf("work", "docs"))) {
+            val count = ids.size + 1
+            val initial = centeredHomePage(0, count)
+            for (cycles in -3..3) {
+                val current = initial + cycles * count
+                assertEquals(current, homePagerDestination(current, ids, ids, homeRequested = true))
+            }
+        }
+    }
+    @Test fun homeFromACategoryUsesTheNearestStandardPage() {
+        val ids = listOf("work", "docs")
+        assertEquals(50_001, homePagerDestination(50_002, ids, ids, homeRequested = true))
+        assertEquals(50_004, homePagerDestination(50_003, ids, ids, homeRequested = true))
+        assertEquals(0, homePagerDestination(0, emptyList(), emptyList(), homeRequested = true))
+    }
+    @Test fun topologyChangesRetainCategoryIdentityNearTheCurrentCoordinate() {
+        val previous = listOf("work", "docs")
+        val current = centeredHomePage(2, 3)
+        for (next in listOf(listOf("docs", "work"), listOf("new", "work", "docs"), listOf("docs"))) {
+            val destination = homePagerDestination(current, previous, next, homeRequested = false)
+            assertEquals("docs", homePageId(destination, next))
+            assertTrue(kotlin.math.abs(destination - current) <= next.size + 1)
+        }
+    }
+    @Test fun deletingTheCurrentCategoryReturnsToHomeIncludingTheLastCategory() {
+        val previous = listOf("work", "docs")
+        val current = centeredHomePage(2, 3)
+        val destination = homePagerDestination(current, previous, listOf("work"), homeRequested = false)
+        assertNull(homePageId(destination, listOf("work")))
+        assertEquals(0, homePagerDestination(current, previous, emptyList(), homeRequested = false))
+    }
+    @Test fun finiteEdgesRecenterOnlyAtRestWithoutChangingTheRealPage() {
+        assertEquals(100_000, VIRTUAL_HOME_PAGES)
+        for (count in 2..3) for (page in listOf(0, 1, VIRTUAL_HOME_PAGES - 2, VIRTUAL_HOME_PAGES - 1)) {
+            assertNull(recenteredHomePage(page, count, scrolling = true))
+            val next = requireNotNull(recenteredHomePage(page, count, scrolling = false))
+            assertEquals(realHomePage(page, count), realHomePage(next, count))
+            assertTrue(next in 49_900..50_100)
+            assertNull(recenteredHomePage(next, count, scrolling = false))
+        }
+        assertNull(recenteredHomePage(0, 1, scrolling = false))
     }
     @Test fun categoryBackIsConsumedRegardlessOfDefaultHome() {
         for (defaultHome in listOf(false, true)) {

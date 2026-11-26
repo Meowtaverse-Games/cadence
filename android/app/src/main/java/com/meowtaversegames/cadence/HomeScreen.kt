@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -34,6 +33,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.CollectionInfo
+import androidx.compose.ui.semantics.ScrollAxisRange
+import androidx.compose.ui.semantics.collectionInfo
+import androidx.compose.ui.semantics.horizontalScrollAxisRange
+import androidx.compose.ui.semantics.scrollToIndex
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -95,6 +100,8 @@ fun HomeScreen(
     categories: List<HomeCategory> = emptyList(),
     categoriesFailed: Boolean = false,
     onCategories: (List<HomeCategory>) -> Unit = {},
+    categoryApps: List<AppEntry> = snapshot.apps,
+    blocked: Boolean = false,
 ) {
     var menu by remember(homeRequest) { mutableStateOf<AppEntry?>(null) }
     var menuCategory by remember(homeRequest) { mutableStateOf<String?>(null) }
@@ -107,11 +114,11 @@ fun HomeScreen(
     SideEffect { categoryLists.keys.retainAll(categories.map { it.id }.toSet()) }
     var searchFocused by remember { mutableStateOf(false) }
     var indexing by remember { mutableStateOf(false) }
-    val searching = query.isNotEmpty() || searchFocused
+    val searching = query.isNotEmpty()
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val layout = remember(snapshot.sections, favorites, query, widgets, favoritesFailed, searching) {
-        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed, searching)
+        homeLayout(snapshot.sections, favorites, query, widgets, favoritesFailed)
     }
     val motionState = rememberEntranceMotion(listState, layout.items,
         scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f &&
@@ -122,11 +129,11 @@ fun HomeScreen(
     }
     fun closeSearch() {
         onQueryChange(""); menu = null; focus.clearFocus(); keyboard?.hide()
-        jumpTo(0)
+        if (searching) jumpTo(0)
     }
     LaunchedEffect(homeRequest) { focus.clearFocus(); keyboard?.hide() }
-    BackHandler(enabled = consumesHomeBack(searching, defaultHome, realPage != 0)) {
-        if (searching) closeSearch()
+    BackHandler(enabled = consumesHomeBack(searching || searchFocused, defaultHome, realPage != 0)) {
+        if (searching || searchFocused) closeSearch()
         else if (realPage != 0) scope.launch {
             pager.animateScrollToPage(nearestHomePage(pager.currentPage, 0, pageCount))
         }
@@ -179,23 +186,41 @@ fun HomeScreen(
         Box(Modifier.weight(1f)) {
             if (searching) standardContent()
             else HorizontalPager(state = pager, userScrollEnabled = pageCount > 1 && !indexing && !searchFocused,
-                modifier = Modifier.fillMaxSize()) { virtualPage ->
+                modifier = Modifier.fillMaxSize().semantics {
+                    collectionInfo = CollectionInfo(1, pageCount)
+                    horizontalScrollAxisRange = ScrollAxisRange(
+                        value = { realHomePage(pager.currentPage, pageCount).toFloat() },
+                        maxValue = { (pageCount - 1).toFloat() })
+                    scrollToIndex { page ->
+                        if (page !in 0 until pageCount) false else {
+                            scope.launch { pager.animateScrollToPage(nearestHomePage(pager.currentPage, page, pageCount)) }
+                            true
+                        }
+                    }
+                }) { virtualPage ->
                 val page = realHomePage(virtualPage, pageCount)
+                // Prefetch may compose another copy of this real page. Only its nearest
+                // virtual occurrence may own a LazyListState or create widget host views.
+                val ownsContent by remember(pager, virtualPage, pageCount) {
+                    derivedStateOf {
+                        ownsHomePageContent(virtualPage, pager.currentPage, pager.currentPageOffsetFraction, pageCount)
+                    }
+                }
                 Box(Modifier.fillMaxSize().graphicsLayer {
                     val motion = homePageMotion((pager.currentPage - virtualPage) + pager.currentPageOffsetFraction, animatorScale)
                     scaleX = motion.scale; scaleY = motion.scale; alpha = motion.alpha
                 }) {
-                    if (page == 0) standardContent()
-                    else categories.getOrNull(page - 1)?.let { category ->
-                        val categoryList = remember(category.id) { categoryLists.getOrPut(category.id) { LazyListState() } }
-                        CategoryPage(category, snapshot, categoryList, presentation, size,
-                            presentation.resting != null && category.appIds.any {
-                                it in installedIds.orEmpty() && it.substringBefore('/') in targets
-                            },
-                            scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f &&
-                                pager.currentPage == virtualPage && !pager.isScrollInProgress,
-                            homeRequest, onLaunch, { menuCategory = category.id; menu = it },
-                            onSettings, onOpenClock, onOpenCalendar, onAddWidget, widgetAddReason)
+                    if (ownsContent) {
+                        if (page == 0) standardContent()
+                        else categories.getOrNull(page - 1)?.let { category ->
+                            val categoryList = remember(category.id) { categoryLists.getOrPut(category.id) { LazyListState() } }
+                            CategoryPage(category, snapshot, categoryList, presentation, size,
+                                categoryApps, targets, blocked,
+                                scrollMotion == ScrollMotion.LOWER_LEFT && animatorScale != 0f &&
+                                    pager.currentPage == virtualPage && !pager.isScrollInProgress,
+                                homeRequest, onLaunch, { menuCategory = category.id; menu = it },
+                                onSettings, onOpenClock, onOpenCalendar, onAddWidget, widgetAddReason)
+                        }
                     }
                 }
             }
@@ -212,10 +237,7 @@ fun HomeScreen(
         }
         OutlinedTextField(value = query, onValueChange = ::changeQuery,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                .onFocusChanged {
-                    if (it.isFocused && !searchFocused) jumpTo(0)
-                    searchFocused = it.isFocused
-                }, singleLine = true,
+                .onFocusChanged { searchFocused = it.isFocused }, singleLine = true,
             shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = colors.plate,
                 unfocusedContainerColor = colors.plate),
@@ -367,26 +389,32 @@ private fun SectionIndex(entries: List<HomeIndexEntry>, modifier: Modifier, onTo
     Box(modifier.onSizeChanged { height = it.height.coerceAtLeast(1) }
         .semantics { contentDescription = "アプリの頭文字索引" }
         .pointerInput(entries, height) {
-            // Own all movement on the index in the Initial pass, before the pager sees it.
-            // The enabled gate also prevents a pager drag from starting between frames.
+            // Reserve the index on DOWN, but retain the original drag-slop selection gate.
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                down.consume()
                 currentTouch(true)
-                select(down.position.y)
+                var dragging = false
                 try {
-                    do {
+                    while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
-                        event.changes.forEach { change ->
-                            if (change.pressed) { change.consume(); select(change.position.y) }
-                        }
-                    } while (event.changes.any { it.pressed })
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        change.consume()
+                        val delta = change.position - down.position
+                        if (!dragging) dragging = startsIndexDrag(delta.x, delta.y, viewConfiguration.touchSlop)
+                        if (dragging) select(change.position.y)
+                    }
                 } finally { selected = null; currentTouch(false) }
             }
         }) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             entries.forEachIndexed { index, entry ->
-                Box(Modifier.weight(1f).fillMaxWidth().clickable { currentSelect(index) }
-                    .semantics { contentDescription = if (index == 0) "先頭へ" else entry.label },
+                Box(Modifier.weight(1f).fillMaxWidth()
+                    .semantics {
+                        contentDescription = if (index == 0) "先頭へ" else entry.label
+                        onClick { currentSelect(index); true }
+                    },
                     contentAlignment = Alignment.Center) {
                     Text(entry.label, fontSize = 10.sp, maxLines = 1)
                 }

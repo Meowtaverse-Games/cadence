@@ -135,6 +135,7 @@ class MainActivity : ComponentActivity() {
                     } },
                     onAddWidget = widgets::openPicker, widgetAddReason = widgets.addReason,
                     categories = categories, categoriesFailed = categoriesFailed, onCategories = ::saveCategories,
+                    categoryApps = snapshot.apps, blocked = blocked,
                 )
                 if (widgets.picker) WidgetPicker(runtime.targets, blocked, widgets.pending == null, widgets::add, { widgets.picker = false })
                 error?.let { message ->
