@@ -11,10 +11,11 @@ class SyncListenerControllerTest {
     private class Harness {
         var account: String? = "synthetic-account-a"
         var writes = 0
+        var changes = 0
         var content = syntheticValue()
         val subscriptions = mutableListOf<Subscription>()
         val timers = mutableListOf<Timer>()
-        val session = SyncSession(null, { content }, { content = it; writes++ }, {}, {}, {})
+        val session = SyncSession(null, { content }, { content = it; writes++ }, { changes++ }, {}, {})
         val controller = SyncListenerController(session, { account },
             listen = { uid, callbacks ->
                 val subscription = Subscription(uid, callbacks)
@@ -59,11 +60,51 @@ class SyncListenerControllerTest {
 
     @Test fun repeatedFailuresBackOffAndSnapshotResetsDelay() {
         val h = Harness()
-        repeat(4) { h.fail(); h.timers.last().callback() }
+        repeat(4) {
+            h.subscriptions.last().callbacks.snapshot(syntheticValue(), true, now)
+            h.fail()
+            h.timers.last().callback()
+        }
         assertEquals(listOf(30_000L, 60_000L, 300_000L, 300_000L), h.timers.map { it.delay })
-        h.subscriptions.last().callbacks.snapshot(syntheticValue(), true, now)
+        h.subscriptions.last().callbacks.snapshot(syntheticValue(), false, now)
         h.fail()
         assertEquals(30_000L, h.timers.last().delay)
+    }
+
+    @Test fun cachedSnapshotAfterRetryPreservesProblemUntilValidServerSnapshot() {
+        for (code in listOf("PERMISSION_DENIED", "UNAVAILABLE")) {
+            val h = Harness()
+            h.subscriptions.last().callbacks.snapshot(syntheticValue(), false, now)
+            h.fail(code)
+            h.timers.last().callback()
+            val later = now.plusSeconds(60)
+            h.subscriptions.last().callbacks.snapshot(syntheticValue(), true, later)
+            assertEquals(listenerFailure(code).message, h.session.status.problem)
+            assertEquals(listenerFailure(code).message, h.session.status.text)
+            assertEquals(now, h.session.status.lastSync)
+            assertEquals(0, h.writes)
+            assertEquals(0, h.changes)
+            h.subscriptions.last().callbacks.snapshot(syntheticValue(), false, later)
+            assertNull(h.session.status.problem)
+            assertEquals("同期済みです", h.session.status.text)
+            assertEquals(later, h.session.status.lastSync)
+        }
+    }
+
+    @Test fun changedCachedSnapshotAfterRetryStillSavesAndReconcilesWithoutClearingProblem() {
+        val h = Harness()
+        h.fail()
+        h.timers.last().callback()
+        h.subscriptions.last().callbacks.snapshot(syntheticValue("Changed"), true, now)
+        assertEquals(1, h.writes)
+        assertEquals(1, h.changes)
+        assertEquals("時間割を読む権限がありません", h.session.status.problem)
+        assertNull(h.session.status.lastSync)
+        h.subscriptions.last().callbacks.snapshot(syntheticValue("Changed"), false, now)
+        assertNull(h.session.status.problem)
+        assertEquals(now, h.session.status.lastSync)
+        assertEquals(1, h.writes)
+        assertEquals(1, h.changes)
     }
 
     @Test fun foregroundReattachesEarlyAndDoesNotDuplicateTheListener() {

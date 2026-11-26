@@ -80,7 +80,8 @@ class SyncSession(
                 return
             }
         }
-        status = SyncStatus(problem = null, lastSync = if (fromCache) status.lastSync else now, fromCache = fromCache)
+        // Cached content cannot establish that the server-side problem has recovered.
+        status = SyncStatus(problem = if (fromCache) status.problem else null, lastSync = if (fromCache) status.lastSync else now, fromCache = fromCache)
     }
 
     private fun storageFailed(fromCache: Boolean) {

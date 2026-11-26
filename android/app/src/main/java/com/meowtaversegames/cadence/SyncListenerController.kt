@@ -70,7 +70,7 @@ class SyncListenerController(
         val remove = listen(uid, SnapshotCallbacks(
             snapshot = { value, fromCache, now ->
                 if (session.accepts(token)) {
-                    failures = 0
+                    if (!fromCache) failures = 0
                     session.snapshot(token, value, fromCache, now)
                     publish()
                 }
